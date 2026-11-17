@@ -1,0 +1,15 @@
+# ABOUTME: Harness registry entry that makes the ReAct agent selectable in the shared web UI.
+# Read by `temporal-agent-harness serve agents.toml`; regenerate the schema with the command in README.md.
+
+[[agents]]
+key = "react-agent"
+workflow_type = "ReactAgent"
+task_queue = "react-agent"
+label = "ReAct Agent"
+schema = "ReactAgent.schema.json"
+description = """
+A ReAct-style agent on the OpenAI Agents SDK, with its Temporal Worker running serverless on Amazon
+Bedrock AgentCore Runtime. Chat in plain text and it finds the weather for a named city
+(coordinates -> weather) or your current location (IP -> location -> weather), chaining tools as
+needed and replying in prose. It asks you a clarifying question (ask_user) when a request is
+ambiguous."""

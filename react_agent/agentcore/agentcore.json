@@ -1,0 +1,78 @@
+{
+  "name": "ReactAgent",
+  "version": 2,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:project-name": "ReactAgent"
+  },
+  "runtimes": [
+    {
+      "name": "temporal_react_worker",
+      "description": "Harness ReAct agent (OpenAI Agents SDK) on a scale-to-zero Temporal worker",
+      "build": "CodeZip",
+      "entrypoint": "agentcore_worker.py",
+      "codeLocation": ".",
+      "runtimeVersion": "PYTHON_3_12",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP",
+      "authorizerType": "AWS_IAM",
+      "envVars": [
+        {
+          "name": "TEMPORAL_ADDRESS",
+          "value": "cornelia3.a2dd6.tmprl.cloud:7233"
+        },
+        {
+          "name": "TEMPORAL_NAMESPACE",
+          "value": "cornelia3.a2dd6"
+        },
+        {
+          "name": "REACT_AGENT_SECRET_ID",
+          "value": "react-agent/keys"
+        },
+        {
+          "name": "REACT_AGENT_TASK_QUEUE",
+          "value": "react-agent"
+        },
+        {
+          "name": "TEMPORAL_DEPLOYMENT_NAME",
+          "value": "react-agent-python"
+        },
+        {
+          "name": "TEMPORAL_BUILD_ID",
+          "value": "1.0.0"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "us-west-2"
+        },
+        {
+          "name": "AGENTCORE_DEBOUNCE_SECONDS",
+          "value": "60"
+        }
+      ],
+      "lifecycleConfiguration": {
+        "idleRuntimeSessionTimeout": 60,
+        "maxLifetime": 28800
+      },
+      "endpoints": {
+        "temporal": {
+          "version": 4,
+          "description": "Invoked by Temporal Cloud Serverless Workers"
+        }
+      },
+      "additionalPolicies": [
+        "secrets-policy.json"
+      ]
+    }
+  ],
+  "memories": [],
+  "knowledgeBases": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [],
+  "policyEngines": [],
+  "configBundles": [],
+  "harnesses": [],
+  "payments": []
+}
