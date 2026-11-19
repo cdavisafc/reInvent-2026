@@ -36,9 +36,10 @@ a Temporal Serverless Worker.
 - **The web UI can't start sessions while the Worker is scaled to zero.** Its agent picker checks
   for live pollers (`DescribeTaskQueue`) and disables "new session" when there are none; opening an
   idle session also hung on workflow queries. Server fix temporalio/temporal#10574 (OSS v1.32.0+)
-  makes queries wake serverless Workers; whether Temporal Cloud has it is unverified. Workarounds:
-  `client.py` (the server doesn't gate session creation), or invoke the endpoint manually first
-  and raise `AGENTCORE_DEBOUNCE_SECONDS`. Proper fix belongs in the harness UI.
+  makes queries wake serverless Workers, and that is confirmed on Temporal Cloud (2026-11-15). The
+  UI's 30s status queries now keep a Worker mostly up, so the picker rarely blocks (challenges
+  doc, item 10). Workarounds when it does: reopen the popup, or use `client.py` (the server
+  doesn't gate session creation). Proper fix belongs in the harness UI.
 - **No F1 / MCP tools** (see table above).
 - **`ask_user` is only answerable from the terminal client** (`client.py`); the packaged web UI has
   no callback-fulfilment affordance. Inherited from the source example.

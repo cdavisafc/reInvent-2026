@@ -23,3 +23,7 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Built by prerelease/build-local-wheels.sh (temporary); never commit.
+prerelease/wheels/
+prerelease/.wheel-build/

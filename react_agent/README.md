@@ -160,7 +160,20 @@ Open http://localhost:8000 and pick **ReAct Agent**, or use the terminal client.
 weather in Tokyo?"* (the tools chain), then *"What's the weather?"*. The second is ambiguous, so
 the agent calls `ask_user`. Only the terminal client can answer it.
 
-Follow the Worker with `agentcore logs runtime --name temporal_react_worker --tail`.
+Follow the Worker with
+`agentcore logs runtime --name temporal_react_worker --qualifier DEFAULT --tail`. Logs are kept
+per endpoint, so the qualifier must match the endpoint Temporal invokes.
+
+To see the AgentCore Workers polling, select the build ID. Without it, `describe` shows only the
+unversioned queue:
+
+```bash
+temporal task-queue describe --task-queue react-agent \
+  --select-build-id react-agent-python:1.0.0
+```
+
+Count running microVMs with the CloudWatch `ActiveSession` metric (statistic `Maximum`, 1-minute
+period). There's no CLI command that lists runtime sessions.
 
 ## Development
 

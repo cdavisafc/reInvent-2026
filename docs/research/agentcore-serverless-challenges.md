@@ -191,10 +191,36 @@ signal.
 - A user who returns after more than 60s idle pays a cold start **and a full history replay**
   on the new Worker (no cache survives).
 
+**Also missed today:** a **timer firing** (its workflow task schedules nothing unless the code
+then calls an activity) and **Nexus operations**. The Worker polls three task queue types
+(workflow, activity, Nexus), and the tracker sees only one.
+
+**Proposed idle definition (not implemented):** reset on any workflow activation (task, timer,
+Update, signal, query), activity task or Nexus task, and hold the drain while activities or
+Nexus handlers are in flight. Rename the class `WorkTracker`.
+
+**How to catch each:**
+- Activities: `intercept_activity` (today).
+- Nexus: `intercept_nexus_operation` on the same worker interceptor.
+- Workflow activations: a workflow inbound interceptor's `execute_workflow` runs **once per run**,
+  so it misses timers and activity results. Wrapping the workflow runner sees every activation.
+  The SDK's poll metrics are another option.
+- Queries: `handle_query` on a workflow inbound interceptor. Workflow interceptors run in the
+  sandbox, so they can't reach a module-level tracker directly; that needs a passthrough module
+  or the runner wrapper.
+
+**Per-work keep-alive (option):** replace the single "changed" event with a "keep alive until"
+deadline that each kind of work pushes out by its own amount. For example, 60s after an
+activity, Nexus task or workflow activation, but only 10–15s after a query, which is enough for
+the UI's next poll. This is our code, so it can vary per work type. AgentCore's
+`idleRuntimeSessionTimeout` can't: it is one value per runtime version, and applies after the
+Worker drains.
+
 **Options:**
 - Raise the debounce to cover typical pauses (e.g. 5 min for a live demo).
 - Count queries as activity with a workflow interceptor on `handle_query`, so one Worker stays
   warm while anyone is watching.
+- The full idle definition above, with per-work keep-alives.
 
 ---
 
@@ -338,6 +364,17 @@ one. Move it to Secrets Manager before the first commit.**
 - Whether Updates wake a scaled-to-zero Worker: answer an `ask_user` after the Worker drains.
 - Burst size on one cold start (3).
 - Cold-start duration against the ~30s query budget (6).
+- Whether eager activity execution actually happens on Temporal Cloud (3). All Workers share
+  identity `1@localhost` (16), so history can't show which Worker ran an activity yet.
+- The Worker ending its own session with `stop_runtime_session` after draining (7).
+
+## Open review decisions
+
+- Item 3: the reviewer argues over-provisioning is inherent to any autoscaler and scale-in
+  corrects it. Proposed: drop 3 as a gotcha, move "burst size" to *Still to test*, and fold the
+  100ms `scale_up_cooloff_ms` default into 4. Not yet decided.
+- Item 1: kept "for now". The reviewer sees it as Temporal requiring a Worker for queries, not
+  as a serverless issue.
 
 ## Not a platform issue (for the record)
 

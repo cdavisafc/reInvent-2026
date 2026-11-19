@@ -1,0 +1,61 @@
+[project]
+name = "react-agent-sessions-agentcore"
+version = "0.1.0"
+description = "A temporal-agent-harness ReAct agent (OpenAI Agents SDK) whose Temporal Worker runs serverless on Amazon Bedrock AgentCore Runtime, with activity sessions"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    # TEMPORARY: resolves to a local activity-sessions build (see override-dependencies) until
+    # activity sessions are released; then restore the PyPI floor.
+    "temporalio>=1.34.0,<2",
+    "temporal-agent-harness[openai-agents]>=0.11.0",
+    "bedrock-agentcore>=1.9.1",
+    "boto3>=1.35",
+    "httpx>=0.27",
+    "aws-opentelemetry-distro>=0.22.0",
+    # The harness's streaming observer reads ResponseFunctionCallArgumentsDoneEvent.name,
+    # which openai 3.9.0 removed; newer versions fail every streamed tool call. 3.8.0 is
+    # what the harness itself locks. See tests/test_openai_pin.py.
+    "openai==3.8.0",
+]
+
+[dependency-groups]
+# Runs locally next to the AgentCore-hosted worker: the packaged session manager + web UI
+# (`temporal-agent-harness serve` / `session-manager`). Not needed in the runtime zip.
+local = [
+    "temporal-agent-harness[ui]>=0.11.0",
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.5.0",
+]
+
+[tool.uv]
+default-groups = ["local", "dev"]
+# The local temporalio wheels only cover macOS and Linux; lock nothing else.
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
+# TEMPORARY: unreleased temporalio with activity sessions, built by ../prerelease/build-local-wheels.sh.
+# The wheels live outside this directory so `agentcore deploy` doesn't zip them into the runtime.
+# Remove (and raise the temporalio floor above) once the release exists.
+#
+# An override, not a [tool.uv.sources] path source: temporal-agent-harness declares
+# temporalio>=1.35.0 and this build is 1.34.0+sessions, so the harness's requirement has to be
+# replaced too. In `uv pip install` an override also drops any path source, so the override
+# names the wheel itself. This form works for `uv lock` / `uv sync` and for the
+# `uv pip install -r pyproject.toml --python-platform aarch64-manylinux2014 --only-binary :all:`
+# that `agentcore deploy` runs for the CodeZip build.
+override-dependencies = [
+    "temporalio @ file://${PROJECT_ROOT}/../prerelease/wheels/temporalio-1.34.0+sessions-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl ; sys_platform == 'linux'",
+    "temporalio @ file://${PROJECT_ROOT}/../prerelease/wheels/temporalio-1.34.0+sessions-cp310-abi3-macosx_11_0_arm64.whl ; sys_platform == 'darwin'",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+# `agentcore deploy` generates a CDK scaffold here and stages the whole dependency tree under
+# .cache/ when it builds; neither is ours to lint.
+extend-exclude = ["agentcore"]

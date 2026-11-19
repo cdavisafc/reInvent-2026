@@ -1,0 +1,78 @@
+{
+  "name": "ReactAgentSessions",
+  "version": 2,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:project-name": "ReactAgentSessions"
+  },
+  "runtimes": [
+    {
+      "name": "temporal_worker",
+      "description": "Harness ReAct agent (OpenAI Agents SDK) on a scale-to-zero Temporal worker with activity sessions",
+      "build": "CodeZip",
+      "entrypoint": "agentcore_worker.py",
+      "codeLocation": ".",
+      "runtimeVersion": "PYTHON_3_12",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP",
+      "authorizerType": "AWS_IAM",
+      "envVars": [
+        {
+          "name": "TEMPORAL_ADDRESS",
+          "value": "ns-agentcore-demo-001.temporal-dev.tmprl-test.cloud:7233"
+        },
+        {
+          "name": "TEMPORAL_NAMESPACE",
+          "value": "ns-agentcore-demo-001.temporal-dev"
+        },
+        {
+          "name": "REACT_AGENT_SECRET_ID",
+          "value": "react-agent-sessions/keys"
+        },
+        {
+          "name": "REACT_AGENT_TASK_QUEUE",
+          "value": "react-agent-sessions"
+        },
+        {
+          "name": "TEMPORAL_DEPLOYMENT_NAME",
+          "value": "react-agent-sessions-python"
+        },
+        {
+          "name": "TEMPORAL_BUILD_ID",
+          "value": "1.0.0"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "us-west-2"
+        },
+        {
+          "name": "AGENTCORE_DEBOUNCE_SECONDS",
+          "value": "60"
+        }
+      ],
+      "lifecycleConfiguration": {
+        "idleRuntimeSessionTimeout": 60,
+        "maxLifetime": 28800
+      },
+      "endpoints": {
+        "temporal": {
+          "version": 1,
+          "description": "Invoked by Temporal Cloud Serverless Workers"
+        }
+      },
+      "additionalPolicies": [
+        "secrets-policy.json"
+      ]
+    }
+  ],
+  "memories": [],
+  "knowledgeBases": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [],
+  "policyEngines": [],
+  "configBundles": [],
+  "harnesses": [],
+  "payments": []
+}
