@@ -1,0 +1,58 @@
+load("@aspect_rules_py//py:defs.bzl", "py_library")
+load("//bazel:agents.bzl", "agent_kit_agent", "agent_kit_agent_registry")
+load("//bazel:binary.bzl", "agent_kit_module_binary")
+
+agent_kit_module_binary(
+    name = "worker",
+    srcs = ["worker.py"],
+    imports = ["../.."],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":workflow",
+        "//python/temporal_agent_kit:plugin",
+        "//python/temporal_agent_kit/ai_sdks/openai_agents",
+        "//python/temporal_agent_kit/utils:task_queue",
+        "@pypi//temporalio",
+    ],
+)
+
+py_library(
+    name = "workflow",
+    srcs = ["workflow.py"],
+    imports = ["../.."],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//python/temporal_agent_kit:agent",
+        "//python/temporal_agent_kit:agent_workflow",
+        "//python/temporal_agent_kit/agent_protocol:__init__",
+        "//python/temporal_agent_kit/ai_sdks/openai_agents",
+        "@pypi//openai_agents",
+        "@pypi//temporalio",
+    ],
+)
+
+agent_kit_agent(
+    name = "OpenAIHelloAgent",
+    agent = "examples.openai_hello.workflow:OpenAIHelloAgentWorkflow",
+    description = """
+A hello-world OpenAI Agents SDK agent. Chat in plain text; it replies in prose and can
+call one tool (get_weather) for a city's weather. Exists to show the harness streaming
+path for the OpenAI integration end to end — model call → streaming activity → live turn
+stream (reply_delta / tool_requested / tool_start / tool_end / model_interaction_*).""",
+    key = "openai-hello",
+    label = "OpenAI Hello",
+    task_queue = "openai-hello",
+    deps = [":workflow"],
+)
+
+# agents.toml and its agents' schema documents. `bazel test` fails when one is out of date;
+# `bazel run //python/examples/openai_hello:agents_update` rewrites them.
+agent_kit_agent_registry(
+    name = "agents",
+    srcs = [
+        "OpenAIHelloAgent.schema.json",
+        "agents.toml",
+    ],
+    agents = [":OpenAIHelloAgent"],
+    visibility = ["//python/tests/web:__pkg__"],
+)

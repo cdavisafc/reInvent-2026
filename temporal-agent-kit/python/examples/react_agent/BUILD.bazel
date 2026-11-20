@@ -1,0 +1,94 @@
+load("@aspect_rules_py//py:defs.bzl", "py_library")
+load("//bazel:agents.bzl", "agent_kit_agent", "agent_kit_agent_registry")
+load("//bazel:binary.bzl", "agent_kit_module_binary")
+
+agent_kit_module_binary(
+    name = "client",
+    srcs = ["client.py"],
+    imports = ["../.."],
+    visibility = ["//:__subpackages__"],
+    deps = ["@pypi//httpx"],
+)
+
+py_library(
+    name = "human_tools",
+    srcs = ["human_tools.py"],
+    imports = ["../.."],
+    visibility = ["//:__subpackages__"],
+    deps = ["//python/temporal_agent_kit:agent"],
+)
+
+py_library(
+    name = "tool_activities",
+    srcs = ["tool_activities.py"],
+    imports = ["../.."],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//python/temporal_agent_kit:agent",
+        "@pypi//httpx",
+        "@pypi//temporalio",
+    ],
+)
+
+agent_kit_module_binary(
+    name = "worker",
+    srcs = ["worker.py"],
+    imports = ["../.."],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":human_tools",
+        ":tool_activities",
+        ":workflow",
+        "//python/temporal_agent_kit:plugin",
+        "//python/temporal_agent_kit/ai_sdks/openai_agents",
+        "//python/temporal_agent_kit/utils:task_queue",
+        "@pypi//openai_agents",
+        "@pypi//temporalio",
+    ],
+)
+
+py_library(
+    name = "workflow",
+    srcs = ["workflow.py"],
+    imports = ["../.."],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":human_tools",
+        ":tool_activities",
+        "//python/temporal_agent_kit:agent",
+        "//python/temporal_agent_kit:agent_workflow",
+        "//python/temporal_agent_kit/agent_protocol:__init__",
+        "//python/temporal_agent_kit/ai_sdks/openai_agents",
+        "@pypi//openai_agents",
+        "@pypi//temporalio",
+    ],
+)
+
+agent_kit_agent(
+    name = "ReactAgent",
+    agent = "examples.react_agent.workflow:ReactAgentWorkflow",
+    description = """
+A ReAct-style agent on the OpenAI Agents SDK: it reasons, then acts by chaining real tools,
+looping on each result until it can answer. Chat in plain text and it finds the weather for a
+named city (coordinates -> weather) or your current location (IP -> location -> weather), and
+pulls Formula 1 data over an MCP server — chaining tools as needed and replying in prose. Shows
+the harness OpenAI streaming path with a multi-tool agentic loop end to end — model call →
+streaming activity → live turn stream (reply_delta / tool_requested / tool_start / tool_end /
+model_interaction_*).""",
+    key = "react-agent",
+    label = "ReAct Agent",
+    task_queue = "react-agent",
+    deps = [":workflow"],
+)
+
+# agents.toml and its agents' schema documents. `bazel test` fails when one is out of date;
+# `bazel run //python/examples/react_agent:agents_update` rewrites them.
+agent_kit_agent_registry(
+    name = "agents",
+    srcs = [
+        "ReactAgent.schema.json",
+        "agents.toml",
+    ],
+    agents = [":ReactAgent"],
+    visibility = ["//python/tests/web:__pkg__"],
+)

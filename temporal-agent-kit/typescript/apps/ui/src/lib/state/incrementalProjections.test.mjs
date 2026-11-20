@@ -1,0 +1,340 @@
+// Each projection folded forward a batch at a time must be the projection rebuilt from scratch,
+// including after it has to start over (another session, a subagent relabeling earlier frames),
+// and must never change a result it already handed out.
+//   npx vitest run src/lib/state/incrementalProjections.test.mjs
+import assert from "node:assert/strict";
+import { describe, it } from "vitest";
+
+import { buildUsageTimeline, usageTimelineBuilder } from "../cost/pricing.ts";
+import { agentTreeGraphBuilder, buildAgentTreeGraph, settledNearCursor } from "./flowProjection.ts";
+import { codeModeScenario, jsonReplyScenarios } from "../mock/jsonReplyScenarios.ts";
+import { realisticQaScenario } from "../mock/scenarios.ts";
+import { buildReplayTimeline, replayTimelineBuilder } from "./replayTimeline.ts";
+import { buildReplyRuns, replyRunsBuilder } from "./replyRuns.ts";
+import { buildStepBoundaries, buildStepTimeline, shownWorkflowRows, stepTimelineBuilder } from "./stepTimeline.ts";
+import { buildTranscript, transcriptBuilder } from "./transcript.ts";
+
+const qa = realisticQaScenario.frames;
+const worst = jsonReplyScenarios().worst.frames;
+const [session, other] = ["wf-a", "wf-b"].map((id) => ({ ...realisticQaScenario.sessions[0], workflow_id: id }));
+const started = qa.find((frame) => frame.event === "subagent_started").data;
+const subagents = [{ subagentId: started.subagent_id, workflowId: started.workflow_id, label: "Researcher" }];
+
+/* Two sessions' worth of growing prefixes in uneven batches, with the subagent observed halfway
+   through the first: each step is [session, frames, subagents]. */
+const steps = [];
+for (const [s, frames] of [[session, [...qa, ...worst]], [other, worst]]) {
+  for (let n = 1, batch = 1; n <= frames.length; n += batch, batch = (batch % 7) + 1) {
+    steps.push([s, frames.slice(0, n), s === session && n > qa.length / 2 ? subagents : []]);
+  }
+}
+
+/* `fold` gets the timeline the way the controller hands it over: folded too, so its entries
+   keep their identity between steps. `rebuild` gets one built from scratch. */
+function check(name, makeFold, rebuild) {
+  it(`${name} matches a full rebuild at every step and leaves earlier results alone`, () => {
+    const timeline = replayTimelineBuilder();
+    const fold = makeFold();
+    let previous = null;
+    let reused = 0;
+    for (const [s, frames, agents] of steps) {
+      const folded = fold(timeline(s, frames, agents, "Agent"), frames);
+      const expected = rebuild(buildReplayTimeline(s, frames, agents, "Agent"), frames);
+      assert.deepEqual(folded, expected, `${name} differs at ${s.workflow_id}:${frames.length}`);
+      if (previous) {
+        assert.deepEqual(previous.value, previous.copy, `${name} changed an earlier result`);
+        if (folded[0] != null && folded[0] === previous.value[0]) reused += 1;
+      }
+      previous = { value: folded, copy: structuredClone(folded) };
+    }
+    assert.ok(reused > steps.length / 2, `${name} rebuilt instead of folding (${reused} of ${steps.length} steps reused)`);
+  });
+}
+
+describe("incremental projections", () => {
+  check("replay timeline", () => (t) => t, (t) => t);
+  check("transcript", () => { const fold = transcriptBuilder(); return (t) => fold(t); }, (t) => buildTranscript(t.filter((e) => e.role === "parent").map((e) => e.frame)));
+  check("reply runs", () => { const fold = replyRunsBuilder(); return (t) => fold(t); }, (t) => buildReplyRuns(t));
+  check("step timeline", () => { const fold = stepTimelineBuilder(); return (t) => fold(t).turns; }, (t) => buildStepTimeline(t).turns);
+  check("usage timeline", () => { const fold = usageTimelineBuilder(); return (_, frames) => fold(frames); }, (_, frames) => buildUsageTimeline(frames));
+
+  it("the timeline's rows read whole are its rows read one at a time, at every step", () => {
+    const timeline = replayTimelineBuilder();
+    const fold = stepTimelineBuilder();
+    for (const input of [...steps.map(([s, frames, agents]) => timeline(s, frames, agents, "Agent")), ...interleaved]) {
+      const { workflow } = fold(input);
+      const oneByOne = { rowCount: workflow.rowCount, rowAt: workflow.rowAt };
+      assert.deepEqual(workflow.rows(), Array.from({ length: workflow.rowCount }, (_, k) => workflow.rowAt(k)), `rows at ${input.length}`);
+      assert.deepEqual(shownWorkflowRows(workflow), shownWorkflowRows(oneByOne), `shown rows at ${input.length}`);
+    }
+  });
+
+  /* The tree's sources the way the controller groups them: the root's frames, then each
+     announced subagent's own. Each step's arrays are new, as the controller's are. */
+  const treeSources = (s, timeline, agents) => [
+    { workflowId: s.workflow_id, role: "parent", label: "Agent", frames: timeline.filter((e) => e.role === "parent").map((e) => e.frame), agentInterface: [] },
+    ...agents.map((agent) => ({
+      workflowId: agent.workflowId,
+      role: "subagent",
+      label: agent.label,
+      parentWorkflowId: s.workflow_id,
+      subagentId: agent.subagentId,
+      frames: timeline.filter((e) => e.workflowId === agent.workflowId).map((e) => e.frame),
+      agentInterface: []
+    }))
+  ];
+  const retried = [
+    entry("turn_started", 0, 1),
+    ...[1, 2, 3].flatMap((k) => [
+      entry("tool_start", k, 1, { tool_id: `r${k}`, tool_name: "fetch", tool_input: {} }),
+      entry("tool_error", k + 0.5, 1, { tool_id: `r${k}`, tool_name: "fetch", message: "timeout" })
+    ]),
+    entry("turn_end", 4, 1)
+  ].map((e) => e.frame);
+
+  for (const [focus, every] of [[false], [true], [false, 3], [true, 3]]) {
+    it(`the state flow graph folded per agent matches a full rebuild at every step${focus ? ", in focus view" : ""}${every ? `, saved every ${every} frames` : ""}`, () => {
+      const timeline = replayTimelineBuilder();
+      const fold = agentTreeGraphBuilder(every);
+      const forward = steps.map(([s, frames, agents]) => {
+        const t = timeline(s, frames, agents, "Agent");
+        return { sources: treeSources(s, t, agents), linger: focus ? settledNearCursor(t) : undefined };
+      });
+      const retries = retried.map((_, n) => ({
+        sources: [{ workflowId: "wf-r", role: "parent", label: "Agent", frames: retried.slice(0, n + 1), agentInterface: [] }]
+      }));
+      /* Then back over the same steps: a scrub, which has to start over. */
+      const inputs = [...forward, ...forward.slice(0, 30).reverse(), ...retries, retries.at(-1)];
+      let previous = null;
+      for (const { sources, linger } of inputs) {
+        const folded = fold(sources, { focus, linger });
+        const where = `${sources[0].workflowId}:${sources.reduce((n, a) => n + a.frames.length, 0)}`;
+        assert.deepEqual(folded, buildAgentTreeGraph(sources, { focus, linger }), `graph differs at ${where}`);
+        if (previous) assert.deepEqual(previous.value, previous.copy, `changed an earlier graph before ${where}`);
+        previous = { value: folded, copy: structuredClone(folded) };
+      }
+    });
+  }
+
+  /* The cursor moved every way a scrub moves it: back one at a time across a save, back a long
+     way, forward again, a long jump forward, Home, End, and anywhere at random. Saves 7 frames
+     apart, so these short runs cross dozens of them. */
+  const cursorPath = (length) => {
+    const path = [length];
+    for (let k = 0; k < 10; k += 1) path.push(path.at(-1) - 1);
+    const half = Math.floor(length / 2);
+    path.push(half, half + 1, half + 2, length - 3, 21, 20, 22, 19, 0, 1, length);
+    for (let k = 0, seed = 7; k < 40; k += 1) {
+      seed = (seed * 48271) % 2147483647;
+      path.push(seed % (length + 1));
+    }
+    return path;
+  };
+  const scenarios = jsonReplyScenarios();
+  /* An evaluation that runs across a save, so the save must not share the record it settles,
+     a reply to a data handler accepted before that save, so its schema must survive it, and a
+     message queued for the next turn. */
+  const gate = { message_id: "m-late", tool_id: "g1", tool_name: "deploy", evaluation_id: "e1", evaluator: "policy" };
+  const queuedFor = (turn, text) =>
+    entry("message_accepted", 0, turn, { message_id: `m-${turn}`, handler: "ask", payload: { text }, disposition: "queued" });
+  const evaluated = [
+    entry("message_accepted", 0, 1, { message_id: "m-late", handler: "clean", payload: { text: "rows" }, disposition: "opened" }),
+    queuedFor(2, "queued for turn 2"),
+    entry("turn_started", 0, 1, gate),
+    entry("tool_approval_requested", 1, 1, { ...gate, tool_input: {} }),
+    entry("auto_approval_evaluation_started", 2, 1, gate),
+    ...Array.from({ length: 16 }, (_, k) => entry("thought_summary", 3 + k, 1, { ...gate, delta: { text: `${k} ` } })),
+    entry("auto_approval_evaluation_ended", 12, 1, { ...gate, verdict: "escalate", reason: "needs a person", details: {} }),
+    entry("reply_delta", 13, 1, { ...gate, text: "Cleaned the rows." }),
+    entry("message_handler_end", 13, 1, { ...gate, output: { text: "Cleaned the rows." } }),
+    entry("tool_approval_resolved", 14, 1, { ...gate, approved: true }),
+    entry("turn_end", 15, 1, gate)
+  ].map((e) => e.frame);
+  /* A subagent whose stream is lost a save after it was dispatched: the parent's record of it
+     has to go back to before the loss. */
+  const helper = { subagent_id: "u1", workflow_id: "wf-helper", agent_key: "helper" };
+  const delegated = [
+    queuedFor(3, "queued for turn 3"),
+    entry("turn_started", 0, 2),
+    entry("subagent_started", 1, 2, helper),
+    entry("subagent_message_sent", 2, 2, { ...helper, handler: "ask", subagent_turn: 1 }),
+    ...Array.from({ length: 16 }, (_, k) => entry("thought_summary", 3 + k, 2, { delta: { text: `${k} ` } })),
+    entry("subagent_stream_unavailable", 12, 2, { ...helper, reason: "stream closed", reason_code: "read_failed" }),
+    entry("subagent_reply_received", 13, 2, { ...helper, outcome: "completed" }),
+    entry("turn_end", 14, 2)
+  ].map((e) => e.frame);
+  /* One agent through Code Mode, structured replies, evaluations, a lost subagent and stacked retries. */
+  const solo = [...codeModeScenario().frames, ...scenarios.worst.frames, ...scenarios.markdown.frames, ...evaluated, ...delegated, ...retried];
+  const soloInterface = scenarios.worst.agentInterface;
+
+  for (const focus of [false, true]) {
+    it(`the state flow graph scrubbed back folds on from a save and matches a full rebuild${focus ? ", in focus view" : ""}`, () => {
+      const all = [...qa, ...worst];
+      const timeline = replayTimelineBuilder();
+      const fold = agentTreeGraphBuilder(7);
+      const inputs = [
+        /* The last few through the subagent's dispatch, reply and stop. */
+        ...[...cursorPath(all.length), 120, 89, 87, 85, 120, 83, 91].map((n) => {
+          const agents = n > qa.length / 2 ? subagents : [];
+          const t = timeline(session, all.slice(0, n), agents, "Agent");
+          return { sources: treeSources(session, t, agents), linger: focus ? settledNearCursor(t) : undefined };
+        }),
+        ...[
+          ...cursorPath(solo.length),
+          solo.length,
+          /* Back one step over each frame those three add to or take from what the fold holds. */
+          ...[
+            evaluated.at(-1), evaluated.at(-2), evaluated.at(-3), evaluated.find((f) => f.event === "auto_approval_evaluation_ended"),
+            delegated.at(-1), delegated.find((f) => f.event === "subagent_stream_unavailable"),
+            delegated.at(-1), delegated[1], delegated[3]
+          ].map((frame) => solo.indexOf(frame))
+        ].map((n) => ({
+          sources: [
+            { workflowId: "wf-solo", role: "parent", label: "Agent", frames: solo.slice(0, n), agentInterface: soloInterface },
+            { workflowId: helper.workflow_id, role: "subagent", label: "Helper", parentWorkflowId: "wf-solo", subagentId: "u1", frames: [], agentInterface: [] }
+          ],
+          linger: focus ? settledNearCursor(solo.slice(0, n).map((frame) => ({ frame }))) : undefined
+        }))
+      ];
+      let previous = null;
+      for (const { sources, linger } of inputs) {
+        const folded = fold(sources, { focus, linger });
+        const where = `${sources[0].workflowId}:${sources.map((a) => a.frames.length).join("+")}`;
+        assert.deepEqual(folded, buildAgentTreeGraph(sources, { focus, linger }), `graph differs at ${where}`);
+        if (previous) assert.deepEqual(previous.value, previous.copy, `changed an earlier graph before ${where}`);
+        previous = { value: folded, copy: structuredClone(folded) };
+      }
+    });
+  }
+
+  let reads = 0;
+  const watched = (frame) =>
+    new Proxy(frame, { get: (target, key) => ((key === "data" || key === "event") && (reads += 1), target[key]) });
+  /* Twelve frames a turn. */
+  const run = (turns) =>
+    Array.from({ length: turns }, (_, t) => [
+      entry("turn_started", t * 10, t + 1),
+      ...Array.from({ length: 5 }, (_, k) => [
+        entry("tool_start", t * 10 + k, t + 1, { tool_id: `t${t}-${k}`, tool_name: "search", tool_input: {} }),
+        entry("tool_end", t * 10 + k + 0.5, t + 1, { tool_id: `t${t}-${k}`, tool_name: "search", tool_output: "{}" })
+      ]).flat(),
+      entry("turn_end", t * 10 + 9, t + 1)
+    ]).flat().map((e) => watched(e.frame));
+  const runSources = (frames) => [{ workflowId: "wf", role: "parent", label: "Agent", frames, agentInterface: [] }];
+  /* What it costs a fold that last folded `from` to fold `to`. */
+  const readsFor = (fold, from, to) => {
+    fold(runSources(from), { focus: true });
+    reads = 0;
+    fold(runSources(to), { focus: true });
+    return reads;
+  };
+
+  /* Counted rather than timed, so a loaded machine cannot fail it: a fold that went back over the
+     run reads more of it the longer the run is. */
+  it("a step back through the state flow graph reads the same frames, however long the run", () => {
+    /* Saves 60 frames apart: 119 and 1,199 frames are both 59 past one. */
+    const [short, long] = [run(10), run(100)].map((frames) =>
+      readsFor(agentTreeGraphBuilder(60), frames, frames.slice(0, -1))
+    );
+    const fromScratch = readsFor(agentTreeGraphBuilder(60), [], run(100).slice(0, -1));
+    assert.ok(short > 0, "the step back read nothing");
+    assert.equal(long, short, `a step back read ${short} times at 120 frames but ${long} at 1,200`);
+    assert.ok(long * 10 < fromScratch, `a step back read ${long} times, folding from scratch ${fromScratch}`);
+  });
+
+  it("the state flow graph starts over on frames that are not the ones it saved", () => {
+    const frames = run(10);
+    /* Another session's frames, or the same ones relabeled: equal, but not the same objects. */
+    const others = frames.map((frame) => watched(structuredClone({ event: frame.event, data: frame.data })));
+    const fold = agentTreeGraphBuilder(10);
+    const graphOf = (list) => [fold(runSources(list), { focus: true }), buildAgentTreeGraph(runSources(list), { focus: true })];
+    const startedOver = readsFor(fold, frames, others.slice(0, 60));
+    assert.deepEqual(...graphOf(others.slice(0, 60)));
+    assert.equal(startedOver, readsFor(agentTreeGraphBuilder(10), [], others.slice(0, 60)), "folded on from a save of other frames");
+    /* Frames that part from the saved ones at 35 fold on from the save at 30. */
+    const parted = [...frames.slice(0, 35), ...others.slice(35, 100)];
+    const resumed = readsFor(fold, frames, parted);
+    assert.deepEqual(...graphOf(parted));
+    assert.equal(resumed, readsFor(agentTreeGraphBuilder(10), parted.slice(0, 30), parted));
+  });
+
+  it("a frame appended to the state flow graph is the only one read, however long the run", () => {
+    const readsForLastFrame = (frames) => readsFor(agentTreeGraphBuilder(), frames.slice(0, -1), frames);
+    const short = readsForLastFrame(run(10));
+    const long = readsForLastFrame(run(100));
+    assert.ok(short > 0, "the appended frame was never read");
+    assert.equal(long, short, `appending one frame read ${short} times at 120 frames but ${long} at 1,200`);
+  });
+
+  it("the replay timeline keeps folding when the same subagents arrive in another order", () => {
+    const timeline = replayTimelineBuilder();
+    const pair = [...subagents, { subagentId: "other", workflowId: "wf-other", label: "Writer" }];
+    const first = timeline(session, qa, pair, "Agent");
+    const second = timeline(session, qa, [...pair].reverse(), "Agent");
+    assert.equal(second[0], first[0]);
+  });
+
+  it("the timeline's workflow rows and gaps match a full rebuild at every step", () => {
+    const timeline = replayTimelineBuilder();
+    const fold = stepTimelineBuilder();
+    for (const input of [...steps.map(([s, frames, agents]) => timeline(s, frames, agents, "Agent")), ...interleaved, ...subagentsOutliveTurn]) {
+      const { workflow } = fold(input);
+      const expected = buildStepTimeline(input).workflow;
+      assert.deepEqual(workflow.rows(), expected.rows(), `workflow rows at ${input.length}`);
+      assert.deepEqual(workflow.gaps, expected.gaps, `gaps at ${input.length}`);
+    }
+  });
+
+  it("step boundaries read off folded turns are every span edge, once, in order", () => {
+    const timeline = replayTimelineBuilder();
+    const fold = stepTimelineBuilder();
+    for (const input of [...steps.map(([s, frames, agents]) => timeline(s, frames, agents, "Agent")), ...interleaved]) {
+      const folded = fold(input);
+      const edges = folded.turns.flatMap((turn) =>
+        [...turn.spans, ...turn.subagentTurns.flatMap((sub) => sub.spans)].flatMap((span) => [span.startIndex, span.endIndex])
+      );
+      assert.deepEqual(buildStepBoundaries(folded), [...new Set(edges)].sort((a, b) => a - b), `boundaries at ${input.length}`);
+    }
+  });
+});
+
+const entry = (event, timestamp, turnNumber, data = {}) => ({
+  frame: { event, data: { type: event, agent_id: "root", turn_number: turnNumber, timestamp, ...data } },
+  workflowId: "root-workflow",
+  role: "parent",
+  label: "Agent"
+});
+
+/* A tool of turn 1 that ends after turn 2 has started, so a later frame rewrites an earlier
+   turn's rows rather than the last turn's. */
+const interleaved = (() => {
+  const tool = (id) => ({ tool_id: id, tool_name: `tool ${id}`, tool_input: {} });
+  const all = [
+    entry("turn_started", 0, 1),
+    entry("tool_start", 1, 1, tool("a")),
+    entry("turn_started", 2, 2),
+    entry("tool_start", 3, 2, tool("b")),
+    entry("tool_end", 4, 1, tool("a")),
+    entry("tool_end", 5, 2, tool("b")),
+    entry("turn_started", 6, 3),
+    entry("tool_start", 7, 3, tool("c"))
+  ];
+  return all.map((_, n) => all.slice(0, n + 1));
+})();
+
+/* Subagents started in turn 1 that end in turn 2: one stops, one is dispatched again. Their rows
+   belong to turn 1, so a turn-2 frame has to rewrite it. */
+const subagentsOutliveTurn = (() => {
+  const sub = (id) => ({ subagent_id: id, workflow_id: `child-${id}`, agent_key: "researcher" });
+  const all = [
+    entry("turn_started", 0, 1),
+    entry("subagent_started", 1, 1, sub("s1")),
+    entry("subagent_started", 2, 1, sub("s2")),
+    entry("turn_end", 3, 1),
+    entry("turn_started", 4, 2),
+    entry("subagent_stopped", 5, 2, sub("s1")),
+    entry("subagent_started", 6, 2, sub("s2")),
+    entry("turn_end", 7, 2)
+  ];
+  return all.map((_, n) => all.slice(0, n + 1));
+})();

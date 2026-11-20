@@ -1,0 +1,107 @@
+load("@aspect_rules_js//js:defs.bzl", "js_test")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
+load("//bazel:js_test.bzl", "agent_kit_js_test")
+
+# Tests of the OpenAI Agents SDK integration (core's src/ai-sdks/openai-agents.ts and
+# worker's src/ai-sdks/openai-agents.ts and src/ai-sdks/openai-agents/). One target per
+# file.
+
+ts_project(
+    name = "kit.test",
+    testonly = True,
+    srcs = ["kit.test.ts"],
+    declaration = True,
+    tsconfig = "//typescript/packages/worker:tsconfig",
+    deps = [
+        ":scripted-model",
+        "//typescript/packages/worker:node_modules/@openai/agents-core",
+        "//typescript/packages/worker:node_modules/@temporalio/agent-kit",
+        "//typescript/packages/worker:node_modules/@temporalio/common",
+        "//typescript/packages/worker/src/ai-sdks/integration-helpers:stream-observer",
+        "//typescript/packages/worker/src/ai-sdks/openai-agents:kit",
+    ],
+)
+
+ts_project(
+    name = "openai-agents.test",
+    testonly = True,
+    srcs = ["openai-agents.test.ts"],
+    declaration = True,
+    tsconfig = "//typescript/packages/worker:tsconfig",
+    deps = [
+        ":scripted-model",
+        ":tools",
+        ":workflows",
+        "//typescript/packages/worker:node_modules/@openai/agents-core",
+        "//typescript/packages/worker:node_modules/@temporalio/activity",
+        "//typescript/packages/worker:node_modules/@temporalio/agent-kit",
+        "//typescript/packages/worker:node_modules/@temporalio/client",
+        "//typescript/packages/worker:node_modules/@temporalio/common",
+        "//typescript/packages/worker:node_modules/@temporalio/openai-agents",
+        "//typescript/packages/worker:node_modules/@temporalio/testing",
+        "//typescript/packages/worker:node_modules/@temporalio/worker",
+        "//typescript/packages/worker/src:agent-client",
+        "//typescript/packages/worker/src:index",
+        "//typescript/packages/worker/src/ai-sdks/integration-helpers:stream-observer",
+        "//typescript/packages/worker/src/ai-sdks/openai-agents:index",
+        "//typescript/packages/worker/src/ai-sdks/openai-agents:kit",
+        "//typescript/packages/worker/test:match",
+        "//typescript/packages/worker/test:support",
+    ],
+)
+
+ts_project(
+    name = "scripted-model",
+    testonly = True,
+    srcs = ["scripted-model.ts"],
+    declaration = True,
+    tsconfig = "//typescript/packages/worker:tsconfig",
+    # The Strands tests run these agents on the same worker as theirs.
+    visibility = ["//typescript/packages/worker/test/ai-sdks:__subpackages__"],
+    deps = ["//typescript/packages/worker:node_modules/@openai/agents-core"],
+)
+
+# The probe agents. The worker bundles the compiled workflows.js at test time, so it and the
+# node_modules it imports are runfiles of the test.
+ts_project(
+    name = "workflows",
+    testonly = True,
+    srcs = ["workflows.ts"],
+    declaration = True,
+    tsconfig = "//typescript/packages/worker:tsconfig",
+    # The Strands tests run these agents on the same worker as theirs.
+    visibility = ["//typescript/packages/worker/test/ai-sdks:__subpackages__"],
+    deps = [
+        ":scripted-model",
+        ":tools",
+        "//typescript/packages/worker:node_modules/@openai/agents-core",
+        "//typescript/packages/worker:node_modules/@temporalio/agent-kit",
+        "//typescript/packages/worker:node_modules/zod",
+    ],
+)
+
+ts_project(
+    name = "tools",
+    testonly = True,
+    srcs = ["tools.ts"],
+    declaration = True,
+    tsconfig = "//typescript/packages/worker:tsconfig",
+    deps = [
+        "//typescript/packages/worker:node_modules/@temporalio/agent-kit",
+        "//typescript/packages/worker:node_modules/zod",
+    ],
+)
+
+js_test(
+    name = "kit_test",
+    data = [":kit.test"],
+    entry_point = "kit.test.js",
+)
+
+agent_kit_js_test(
+    name = "openai-agents_test",
+    data = [":openai-agents.test"],
+    entry_point = "openai-agents.test.js",
+    # agents-core would export traces to OpenAI from the worker.
+    env = {"OPENAI_AGENTS_DISABLE_TRACING": "1"},
+)

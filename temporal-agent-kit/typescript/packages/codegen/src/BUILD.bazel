@@ -1,0 +1,29 @@
+load("@aspect_rules_js//js:defs.bzl", "js_binary")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
+
+ts_project(
+    name = "cli",
+    srcs = ["cli.ts"],
+    declaration = True,
+    tsconfig = "//typescript/packages/codegen:tsconfig",
+    visibility = ["//typescript/packages/codegen:__pkg__"],
+    deps = [":generate"],
+)
+
+ts_project(
+    name = "generate",
+    srcs = ["generate.ts"],
+    declaration = True,
+    tsconfig = "//typescript/packages/codegen:tsconfig",
+    visibility = ["//typescript/packages/codegen:__subpackages__"],
+    deps = ["//typescript/packages/codegen:node_modules/json-schema-to-typescript"],
+)
+
+# agent-kit-codegen (package.json's bin): reads a `temporal-agent-kit schema` document and prints
+# TypeScript types.
+js_binary(
+    name = "agent-kit-codegen",
+    data = [":cli"],
+    entry_point = "cli.js",
+    visibility = ["//visibility:public"],
+)

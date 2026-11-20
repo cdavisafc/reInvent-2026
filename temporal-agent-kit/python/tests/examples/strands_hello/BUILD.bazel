@@ -1,0 +1,24 @@
+load("@aspect_rules_py//py:defs.bzl", "py_library")
+load("//bazel:pytest.bzl", "agent_kit_pytest_test")
+
+py_library(
+    name = "__init__",
+    srcs = ["__init__.py"],
+    imports = ["../../.."],
+    visibility = ["//python:__subpackages__"],
+)
+
+agent_kit_pytest_test(
+    name = "test_strands_hello",
+    srcs = ["test_strands_hello.py"],
+    imports = ["../../.."],
+    deps = [
+        "//python/examples/strands_hello:workflow",
+        "//python/temporal_agent_kit:plugin",
+        "//python/temporal_agent_kit/agent_protocol:__init__",
+        "//python/temporal_agent_kit/ai_sdks/strands_agents:__init__",
+        "//python/tests:conftest",
+        "@pypi//strands_agents",
+        "@pypi//temporalio",
+    ],
+)

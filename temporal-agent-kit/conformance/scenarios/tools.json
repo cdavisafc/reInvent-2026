@@ -1,0 +1,60 @@
+{
+  "description": "An activity tool, a structured result, a workflow tool, a tool with no result, and a tool that fails.",
+  "actions": [
+    {
+      "action": "send",
+      "handler": "run_reject",
+      "script": {
+        "steps": [
+          {
+            "step": "tool",
+            "id": "call-add",
+            "name": "add",
+            "args": {
+              "a": 2,
+              "b": 3
+            }
+          },
+          {
+            "step": "tool",
+            "id": "call-lookup",
+            "name": "lookup",
+            "args": {
+              "key": "k1"
+            }
+          },
+          {
+            "step": "tool",
+            "id": "call-echo",
+            "name": "echo",
+            "args": {
+              "text": "hi"
+            }
+          },
+          {
+            "step": "tool",
+            "id": "call-noop",
+            "name": "noop",
+            "args": {
+              "text": "x"
+            }
+          },
+          {
+            "step": "tool",
+            "id": "call-fail",
+            "name": "fail",
+            "args": {
+              "message": "broken"
+            }
+          },
+          {
+            "step": "model",
+            "reply": [
+              "Done."
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

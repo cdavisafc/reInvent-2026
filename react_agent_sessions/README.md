@@ -305,6 +305,8 @@ uv run python client.py
 ```
 
 Open http://localhost:8000 and pick **ReAct Agent (activity sessions)**, or use the terminal client.
+For now, use the agent kit's UI on :5173 instead; see
+[Running the UI from the agent kit (temporary)](#running-the-ui-from-the-agent-kit-temporary).
 Try *"What's the weather in Tokyo?"*, which chains the tools. Then try *"What's the weather?"*. It's
 ambiguous, so the agent calls `ask_user`, and only the terminal client can answer it.
 
@@ -369,3 +371,49 @@ OPENAI_API_KEY=... uv run python -c 'import asyncio, agentcore_worker as w; asyn
   every Worker, server and client.
 - **`ActivityTracker`** is duplicated across this repo's examples on purpose. Each example is
   zipped and deployed on its own.
+
+## Running the UI from the agent kit (temporary)
+
+The UI built into `temporal-agent-harness` 0.11.0 refuses to start a session when no Worker is
+polling the agent's task queue. For a serverless Worker that scales to zero, that is the normal
+resting state, so the built-in UI can't start sessions for this agent. Until a harness release
+includes the fix ([temporal-agent-kit#316](https://github.com/temporal-community/temporal-agent-kit/pull/316)),
+run the UI from source on that PR's branch.
+
+That splits the local side into three processes:
+
+| Process | Command | Port |
+|---|---|---|
+| Session manager | `uv run temporal-agent-harness session-manager` (in this directory) | none |
+| HTTP API | `uv run temporal-agent-harness serve agents.toml --port 8000` (in this directory) | 8000 |
+| UI | `pnpm dev` (in `temporal-agent-kit/typescript/apps/ui`) | 5173 |
+
+**Open http://127.0.0.1:5173, not :8000.** `serve` still serves its built-in UI on :8000; don't use
+it. We keep `serve` only for the `/api` endpoints. The UI's dev server forwards `/api` to
+`127.0.0.1:8000`. The terminal client (`client.py`) is still a separate, optional process, needed
+only to answer `ask_user`.
+
+The UI's **New session** dialog still warns "No worker is polling `react-agent-sessions`". That's
+expected: Start session works anyway, and the session's first workflow task invokes the runtime.
+
+One-time setup (needs pnpm 12; `brew install pnpm`):
+
+```bash
+git clone https://github.com/temporal-community/temporal-agent-kit.git
+cd temporal-agent-kit
+gh pr checkout 316
+cd typescript
+pnpm install
+```
+
+Then start the UI with `cd apps/ui && pnpm dev`. Notes:
+
+- `pnpm install` ends with `ERR_PNPM_IGNORED_BUILDS` for `@google/genai`, `@swc/core` and
+  `protobufjs`. The packages are installed; the UI doesn't need their build scripts. pnpm also
+  writes placeholder lines into `typescript/pnpm-workspace.yaml`. Revert them with
+  `git checkout typescript/pnpm-workspace.yaml`.
+- This runs the UI from the kit's newer code against the 0.11.0 API in `serve`. If the UI hits
+  endpoints the server doesn't have (404s or 422s in the browser console or the `serve` log), run
+  `serve` from the same checkout too.
+- Nothing here touches the AgentCore runtime or `pyproject.toml`. When a harness release includes
+  the fix, bump `temporal-agent-harness`, use :8000 again and delete this section.

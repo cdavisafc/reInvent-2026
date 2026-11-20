@@ -1,0 +1,118 @@
+{
+  "name": "@temporalio/agent-kit",
+  "version": "0.6.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Temporal Agent Kit for TypeScript: the workflow-safe authoring API for durable agents.",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "sideEffects": [
+    "./dist/src/ai-sdks/strands-agents/index.js",
+    "./dist/src/ai-sdks/strands-agents/load-polyfills.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./agent-protocol": {
+      "types": "./dist/src/agent-protocol/index.d.ts",
+      "default": "./dist/src/agent-protocol/index.js"
+    },
+    "./agent-schema": {
+      "types": "./dist/src/agent-schema.d.ts",
+      "default": "./dist/src/agent-schema.js"
+    },
+    "./agent-workflow": {
+      "types": "./dist/src/agent-workflow.d.ts",
+      "default": "./dist/src/agent-workflow.js"
+    },
+    "./code-mode": {
+      "types": "./dist/src/code-mode/index.d.ts",
+      "default": "./dist/src/code-mode/index.js"
+    },
+    "./code-mode/vfs": {
+      "types": "./dist/src/code-mode/vfs.d.ts",
+      "default": "./dist/src/code-mode/vfs.js"
+    },
+    "./code-mode/okf": {
+      "types": "./dist/src/code-mode/okf.d.ts",
+      "default": "./dist/src/code-mode/okf.js"
+    },
+    "./ai-sdks/google-genai-plugin": {
+      "types": "./dist/src/ai-sdks/google-genai-plugin/index.d.ts",
+      "default": "./dist/src/ai-sdks/google-genai-plugin/index.js"
+    },
+    "./ai-sdks/jev/evaluator": {
+      "types": "./dist/src/ai-sdks/jev/evaluator.d.ts",
+      "default": "./dist/src/ai-sdks/jev/evaluator.js"
+    },
+    "./ai-sdks/openai-agents": {
+      "types": "./dist/src/ai-sdks/openai-agents.d.ts",
+      "default": "./dist/src/ai-sdks/openai-agents.js"
+    },
+    "./ai-sdks/strands-agents": {
+      "types": "./dist/src/ai-sdks/strands-agents/index.d.ts",
+      "default": "./dist/src/ai-sdks/strands-agents/index.js"
+    },
+    "./skill": "./skills/temporal-agent-kit-typescript/SKILL.md"
+  },
+  "files": [
+    "dist/src",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json --outDir dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0",
+    "@temporalio/agent-kit-client": "^0.6.0",
+    "@temporalio/common": "^1.24.0",
+    "@temporalio/workflow": "^1.24.0",
+    "@temporalio/workflow-streams": "^1.24.0",
+    "@ungap/structured-clone": "^1.4.0",
+    "headers-polyfill": "^4.0.3",
+    "immer": "^11.1.18",
+    "web-streams-polyfill": "^4.3.0",
+    "zod": "^4.6.5"
+  },
+  "peerDependencies": {
+    "@google/genai": "^2.31.0",
+    "@openai/agents-core": "~0.14.3",
+    "@strands-agents/sdk": "^1.24.0",
+    "@temporalio/openai-agents": "^1.24.0"
+  },
+  "peerDependenciesMeta": {
+    "@google/genai": {
+      "optional": true
+    },
+    "@openai/agents-core": {
+      "optional": true
+    },
+    "@strands-agents/sdk": {
+      "optional": true
+    },
+    "@temporalio/openai-agents": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@google/genai": "^2.31.0",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@openai/agents-core": "~0.14.3",
+    "@opentelemetry/api": "^1.10.0",
+    "@strands-agents/sdk": "^1.24.0",
+    "@temporalio/openai-agents": "^1.24.0",
+    "@types/node": "^22.20.4",
+    "@types/ungap__structured-clone": "^1.2.0",
+    "typescript": "^7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/temporal-community/temporal-agent-harness.git",
+    "directory": "typescript/packages/core"
+  }
+}
