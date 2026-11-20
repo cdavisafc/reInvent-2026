@@ -48,6 +48,10 @@
         {
           "name": "AGENTCORE_DEBOUNCE_SECONDS",
           "value": "60"
+        },
+        {
+          "name": "SESSION_HEARTBEAT_TABLE",
+          "value": "react-agent-sessions-heartbeats"
         }
       ],
       "lifecycleConfiguration": {
@@ -61,7 +65,8 @@
         }
       },
       "additionalPolicies": [
-        "secrets-policy.json"
+        "secrets-policy.json",
+        "session-heartbeat-policy.json"
       ]
     }
   ],

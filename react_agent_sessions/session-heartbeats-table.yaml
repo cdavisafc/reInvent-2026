@@ -1,0 +1,36 @@
+# CloudFormation template for the DynamoDB table that AgentCore sessions write their liveness heartbeat to.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  DynamoDB table holding one liveness item per AgentCore runtime session, written by the
+  runtime (session_heartbeat.py) and read by the local status page (status_page.py).
+
+Parameters:
+  TableName:
+    Type: String
+    Default: "react-agent-sessions-heartbeats"
+    Description: Must match SESSION_HEARTBEAT_TABLE in agentcore/agentcore.json and session-heartbeat-policy.json.
+
+Resources:
+  SessionHeartbeats:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref TableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+      # Items carry expires_at (last beat + 1 hour); DynamoDB deletes them some time after.
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+Outputs:
+  TableName:
+    Description: The heartbeat table's name
+    Value: !Ref SessionHeartbeats
+  TableArn:
+    Description: The heartbeat table's ARN
+    Value: !GetAtt SessionHeartbeats.Arn

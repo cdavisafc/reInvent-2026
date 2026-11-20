@@ -23,16 +23,23 @@ from urllib.parse import quote
 
 import httpx
 from temporal_agent_harness.harness import agent
+from temporalio.common import RetryPolicy
 from temporalio.workflow import ActivityConfig
 
 # Per-tool execution ceiling for these quick HTTP calls (mirrors demo2's 30s).
 _TOOL_TIMEOUT = timedelta(seconds=30)
 # Per-request HTTP timeout, comfortably under the activity's start-to-close.
 _HTTP_TIMEOUT = 5.0
+# Unlimited attempts (Temporal's default), but backoff caps at 15s instead of the default 100s,
+# so a tool whose public API stalls for a while (Open-Meteo sometimes does from AWS) recovers
+# soon after the API does.
+_TOOL_RETRY = RetryPolicy(maximum_interval=timedelta(seconds=15))
 
 
 @agent.activity_tool_defn(
-    activity_config=ActivityConfig(start_to_close_timeout=_TOOL_TIMEOUT),
+    activity_config=ActivityConfig(
+        start_to_close_timeout=_TOOL_TIMEOUT, retry_policy=_TOOL_RETRY
+    ),
 )
 async def get_ip_address() -> str:
     """Get the public IP address of the machine running the agent."""
@@ -43,7 +50,9 @@ async def get_ip_address() -> str:
 
 
 @agent.activity_tool_defn(
-    activity_config=ActivityConfig(start_to_close_timeout=_TOOL_TIMEOUT),
+    activity_config=ActivityConfig(
+        start_to_close_timeout=_TOOL_TIMEOUT, retry_policy=_TOOL_RETRY
+    ),
 )
 async def get_location_info(ipaddress: str) -> str:
     """Get the location for an IP address: city, region, country, latitude, and longitude.
@@ -60,7 +69,9 @@ async def get_location_info(ipaddress: str) -> str:
 
 
 @agent.activity_tool_defn(
-    activity_config=ActivityConfig(start_to_close_timeout=_TOOL_TIMEOUT),
+    activity_config=ActivityConfig(
+        start_to_close_timeout=_TOOL_TIMEOUT, retry_policy=_TOOL_RETRY
+    ),
     inherently_safe=True,
 )
 async def get_coordinates(city: str) -> str:
@@ -77,7 +88,9 @@ async def get_coordinates(city: str) -> str:
 
 
 @agent.activity_tool_defn(
-    activity_config=ActivityConfig(start_to_close_timeout=_TOOL_TIMEOUT),
+    activity_config=ActivityConfig(
+        start_to_close_timeout=_TOOL_TIMEOUT, retry_policy=_TOOL_RETRY
+    ),
     inherently_safe=True,
 )
 async def get_weather(latitude: float, longitude: float) -> str:
