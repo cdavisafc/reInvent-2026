@@ -64,38 +64,50 @@ uv run python status_page.py                      # http://127.0.0.1:8100
 uv run python status_page.py --config other.toml --port 8101
 ```
 
-The page refreshes every 5 seconds. It remembers which sections you collapsed, per browser.
+The page refreshes every 5 seconds, paced by a background worker thread: browsers slow a page's
+own timers when they decide nobody is watching it (Chrome: to about once a minute), but not a
+worker's. It also refreshes the moment it becomes visible again. The header shows when it last
+refreshed.
+It remembers which sections you collapsed, per browser.
 
 ## What it shows
 
 Each section's title shows the agent's label, its task queue, and how many sessions it has and how
-many are polling. Its table has one row per running workflow on the queue:
+many are polling. Its table has one row per running workflow on the queue, and two columns:
 
-| Column | Source |
-|---|---|
-| Agent Session | Running workflow IDs on the agent's task queue (Temporal visibility) |
-| Agent Ready | Whether a Worker is polling: Temporal `ListWorkers`, from the SDK's worker heartbeats (every 10s) |
-| AgentCore session ID | The identity on the workflow's latest workflow task: Workers connect as `agentcore:<session id>` |
-| Session alive | The session heartbeat in DynamoDB (every 10s) |
+| Column | ID | Green when | Source |
+|---|---|---|---|
+| Agent session | The workflow ID (Temporal visibility) | A Worker is polling for it | Temporal `ListWorkers`, from the SDK's worker heartbeats (every 2s) |
+| AgentCore session | The identity on the workflow's latest workflow task: Workers connect as `agentcore:<session id>` | The session is alive | The session heartbeat in DynamoDB (every 10s) |
 
-The Agent Session and Agent Ready cells are green while a Worker is polling and red otherwise; the
-AgentCore session ID and Session alive cells are green while the session is alive and red otherwise.
+The icon at the right of each cell gives the finer state:
+
+| Icon | Agent session | AgentCore session |
+|---|---|---|
+| ⚡ active | A Worker is polling for it | Its Worker is running |
+| ⏸ standby | No Worker: the workflow waits (on an approval, say) until the next invoke | The Worker drained; the microVM idles until AgentCore ends it |
+| ■ ended | | AgentCore has ended the session |
+
+To keep the page narrow, IDs show only the first 6 hex digits of each UUID in them, keeping the
+words around them (`agent-session-dfb180…`). Hover an ID for the full one. Every section uses the
+same column widths. The page's look follows the agent kit UI: dark, square, hairline borders, mono
+labels and identifiers.
 
 The two heartbeats have different lifetimes. The Temporal Worker heartbeat stops when the Worker
 drains. The session heartbeat is a separate task in the runtime process. It keeps beating while
 the drained microVM waits, and stops only when AgentCore ends the session. Expect a workflow to go:
-1. from polling and alive;
-2. to not polling but alive (`AGENTCORE_DEBOUNCE_SECONDS` after its last activity);
-3. to not alive (`idleRuntimeSessionTimeout` later).
+1. from polling and alive (both green, both ⚡);
+2. to not polling but alive, `AGENTCORE_DEBOUNCE_SECONDS` after its last activity (red ⏸, green ⏸);
+3. to not alive, `idleRuntimeSessionTimeout` later (red ⏸, red ■).
 
-Live sessions no workflow points at, such as the bootstrap invoke from `create-version`, are
-listed after the workflows. Each appears in the section for the task queue its heartbeat names.
-Heartbeats for queues missing from the config aren't shown.
+The page shows only running workflows, so an AgentCore session no running workflow points at
+doesn't appear. Examples are the bootstrap invoke from `create-version`, or a session the UI
+starts by reopening an old, finished agent session from its URL.
 
 The session heartbeat never registers an AgentCore async task. If it did, `/ping` would report
 `HealthyBusy`, and the session would stay alive, and billed, until `maxLifetime`.
 
-If the server doesn't offer `ListWorkers`, the page says so, and the Agent Ready column falls back
+If the server doesn't offer `ListWorkers`, the page says so, and the Agent session column falls back
 to the session's own report.
 
 ## Heartbeat table schema
@@ -105,7 +117,7 @@ One item per AgentCore session, keyed by `session_id`:
 | Attribute | Meaning |
 |---|---|
 | `session_id` | The AgentCore runtime session ID (the key) |
-| `task_queue` | The queue the session's Worker serves: which section the session belongs to |
+| `task_queue` | The queue the session's Worker serves, for reading the table directly (the page finds sessions through their workflows) |
 | `started_at`, `last_seen` | Epoch seconds: when the heartbeat started, and its latest beat |
 | `worker_running`, `worker_identity` | Whether the session's Worker is running, as the session reports it |
 | `expires_at` | `last_seen` plus one hour; DynamoDB's TTL deletes the item some time after |

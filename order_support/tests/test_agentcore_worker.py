@@ -164,3 +164,33 @@ async def test_session_goes_idle_while_heartbeat_keeps_beating(
 
     assert not agentcore_worker._heartbeat._task.done()
     assert agentcore_worker.app.get_current_ping_status() == PingStatus.HEALTHY
+
+
+class _SlowDrainWorker:
+    """Stands in for a Worker whose shutdown takes a while; records the heartbeat as it starts."""
+
+    def __init__(self, heartbeat_items: list[dict]) -> None:
+        self._items = heartbeat_items
+        self.reported_at_drain_start: dict | None = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await _settle()
+        self.reported_at_drain_start = self._items[-1]
+
+
+async def test_session_reports_standby_as_soon_as_the_worker_starts_draining(
+    monkeypatch: pytest.MonkeyPatch, heartbeat_items: list[dict]
+) -> None:
+    # A Worker drains only once nothing is in flight, and stops polling as it starts. Its
+    # shutdown can take a while; the session must not report a running Worker meanwhile.
+    agentcore_worker._start_heartbeat("runtime-session-1")
+    agentcore_worker._heartbeat.set_worker_running(True, "agentcore:runtime-session-1")
+    await _settle()
+    worker = _SlowDrainWorker(heartbeat_items)
+
+    await agentcore_worker.poll_until_idle(worker, ActivityTracker(), debounce=0.001)
+
+    assert worker.reported_at_drain_start["worker_running"] is False

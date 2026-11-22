@@ -36,10 +36,12 @@ Two heartbeats feed the local status page (../agent_status/status_page.py):
 import asyncio
 import functools
 import os
+import time
 from datetime import timedelta
 
 import boto3
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from temporalio import activity
 from temporalio.client import Client
 from temporalio.common import VersioningBehavior
 from temporalio.runtime import Runtime, TelemetryConfig
@@ -82,8 +84,9 @@ ACTIVITY_SLOTS = 4
 DEBOUNCE = float(os.environ.get("AGENTCORE_DEBOUNCE_SECONDS", "60"))
 # How long the drain waits for in-flight Activities (a model, tool or subagent call).
 DRAIN = timedelta(seconds=120)
-# How often the SDK reports this Worker to the Temporal server (read back with ListWorkers).
-WORKER_HEARTBEAT = timedelta(seconds=10)
+# How often the SDK reports this Worker to the Temporal server (read back with ListWorkers). A new
+# Worker first shows there one interval after it starts, so keep it short for the status page.
+WORKER_HEARTBEAT = timedelta(seconds=2)
 # The shared DynamoDB table for the session heartbeat (../agent_status/). Unset (local runs) turns
 # the heartbeat off.
 HEARTBEAT_TABLE = os.environ.get("SESSION_HEARTBEAT_TABLE")
@@ -122,14 +125,26 @@ class _TrackedActivity(ActivityInboundInterceptor):
         self._tracker = tracker
 
     async def execute_activity(self, input: ExecuteActivityInput):
+        # Named in the logs, so it's clear what keeps a Worker (and its session) from draining.
+        info = activity.info()
         self._tracker.inflight += 1
         self._tracker.changed.set()
-        log.info("activity in flight: %d", self._tracker.inflight)
+        log.info(
+            "activity started: %s (workflow %s); in flight: %d",
+            info.activity_type,
+            info.workflow_id,
+            self._tracker.inflight,
+        )
         try:
             return await self.next.execute_activity(input)
         finally:
             self._tracker.inflight -= 1
             self._tracker.changed.set()
+            log.info(
+                "activity finished: %s; in flight: %d",
+                info.activity_type,
+                self._tracker.inflight,
+            )
 
 
 def worker_identity(session_id: str | None) -> str | None:
@@ -203,9 +218,20 @@ async def run_worker(session_id: str | None) -> None:
         ),
         graceful_shutdown_timeout=DRAIN,
     )
+    await poll_until_idle(worker, tracker, DEBOUNCE)
+
+
+async def poll_until_idle(worker, tracker: ActivityTracker, debounce: float) -> None:
+    """Run the Worker until no Activity has run for ``debounce`` seconds, then drain it."""
     async with worker:
-        await tracker.wait_until_idle(DEBOUNCE)
-    log.info("worker idle for %ss; drained", DEBOUNCE)
+        await tracker.wait_until_idle(debounce)
+        # Nothing is in flight, and the Worker stops polling as the drain starts. Report that
+        # now: the shutdown itself can take a while.
+        if _heartbeat is not None:
+            _heartbeat.set_worker_running(False)
+        log.info("worker idle for %ss; draining", debounce)
+        drain_started = time.monotonic()
+    log.info("worker drained in %.1fs", time.monotonic() - drain_started)
 
 
 async def _run_until_idle(task_id: int, session_id: str | None) -> None:

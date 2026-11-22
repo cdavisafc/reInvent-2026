@@ -46,6 +46,7 @@ Two heartbeats feed the local status page (../agent_status/status_page.py):
 import asyncio
 import functools
 import os
+import time
 from datetime import timedelta
 
 import boto3
@@ -105,8 +106,9 @@ ACTIVITY_SLOTS = 4
 DEBOUNCE = float(os.environ.get("AGENTCORE_DEBOUNCE_SECONDS", "60"))
 # How long the drain waits for in-flight Activities (a model or tool call).
 DRAIN = timedelta(seconds=120)
-# How often the SDK reports this Worker to the Temporal server (read back with ListWorkers).
-WORKER_HEARTBEAT = timedelta(seconds=10)
+# How often the SDK reports this Worker to the Temporal server (read back with ListWorkers). A new
+# Worker first shows there one interval after it starts, so keep it short for the status page.
+WORKER_HEARTBEAT = timedelta(seconds=2)
 # The DynamoDB table for the session heartbeat. Unset (local runs) turns the heartbeat off.
 HEARTBEAT_TABLE = os.environ.get("SESSION_HEARTBEAT_TABLE")
 
@@ -248,9 +250,20 @@ async def run_worker(session_id: str | None) -> None:
         ),
         graceful_shutdown_timeout=DRAIN,
     )
+    await poll_until_idle(worker, tracker, DEBOUNCE)
+
+
+async def poll_until_idle(worker, tracker: ActivityTracker, debounce: float) -> None:
+    """Run the Worker until no Activity has run for ``debounce`` seconds, then drain it."""
     async with worker:
-        await tracker.wait_until_idle(DEBOUNCE)
-    log.info("worker idle for %ss; drained", DEBOUNCE)
+        await tracker.wait_until_idle(debounce)
+        # Nothing is in flight, and the Worker stops polling as the drain starts. Report that
+        # now: the shutdown itself can take a while.
+        if _heartbeat is not None:
+            _heartbeat.set_worker_running(False)
+        log.info("worker idle for %ss; draining", debounce)
+        drain_started = time.monotonic()
+    log.info("worker drained in %.1fs", time.monotonic() - drain_started)
 
 
 async def _run_until_idle(task_id: int, session_id: str | None) -> None:

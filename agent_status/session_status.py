@@ -2,7 +2,8 @@
 # polling Workers) with the AgentCore session heartbeats. Pure logic; status_page.py fetches.
 
 """One section per configured agent (a task queue), each with one row per agent session (a running
-workflow on that queue), plus live AgentCore sessions on that queue that no workflow points at.
+workflow on that queue). An AgentCore session no running workflow points at isn't shown: a UI
+reopening an old session, for instance, can invoke a runtime for a workflow that has ended.
 
 - Workflow -> session: the identity on the workflow's latest WorkflowTaskStarted event. Workers
   on AgentCore connect as ``agentcore:<session id>`` (agentcore_worker.worker_identity).
@@ -11,13 +12,15 @@ workflow on that queue), plus live AgentCore sessions on that queue that no work
 - Session alive: the session heartbeat's ``last_seen`` (session_heartbeat.py) is recent.
 """
 
+import re
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 IDENTITY_PREFIX = "agentcore:"
-# Both heartbeats beat every 10s; three missed beats means gone.
+# The Worker heartbeat beats every 2s and the session heartbeat every 10s; three missed session
+# beats means gone.
 FRESH_SECONDS = 30.0
 
 
@@ -94,7 +97,7 @@ class WorkerSeen:
 
 @dataclass(frozen=True)
 class SessionRow:
-    workflow_id: str | None
+    workflow_id: str
     session_id: str | None
     worker_polling: bool
     worker_heartbeat_age: float | None
@@ -109,6 +112,18 @@ class AgentSection:
     label: str
     task_queue: str
     rows: list[SessionRow]
+
+
+# A UUID, or a long run of hex digits without dashes.
+_UUID_LIKE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{16,}", re.IGNORECASE
+)
+SHORT_ID_DIGITS = 6
+
+
+def short_id(full_id: str) -> str:
+    """The ID with each UUID cut to a few hex digits, keeping the meaningful words around them."""
+    return _UUID_LIKE.sub(lambda m: m.group()[:SHORT_ID_DIGITS] + "…", full_id)
 
 
 def session_id_from_identity(identity: str | None) -> str | None:
@@ -134,23 +149,35 @@ def build_rows(
     heartbeats_by_session: Mapping[str, Mapping],
     now: float,
 ) -> list[SessionRow]:
-    """Rows for the given workflows, in order, then live sessions no workflow points at.
+    """One row per workflow, in order, with the AgentCore session its latest workflow task ran in.
 
     ``workers_by_identity`` is None when ListWorkers is unavailable.
     """
-    rows = []
-    claimed: set[str] = set()
-    for workflow_id in workflow_ids:
-        session_id = session_id_from_identity(last_identity_by_workflow.get(workflow_id))
-        if session_id:
-            claimed.add(session_id)
-        rows.append(_row(workflow_id, session_id, workers_by_identity, heartbeats_by_session, now))
+    return [
+        _row(
+            workflow_id,
+            session_id_from_identity(last_identity_by_workflow.get(workflow_id)),
+            workers_by_identity,
+            heartbeats_by_session,
+            now,
+        )
+        for workflow_id in workflow_ids
+    ]
 
-    for session_id in sorted(heartbeats_by_session.keys() - claimed):
-        row = _row(None, session_id, workers_by_identity, heartbeats_by_session, now)
-        if row.session_alive:
-            rows.append(row)
-    return rows
+
+def worker_state(row: SessionRow) -> str:
+    """The agent session's state: "active" while a Worker polls for it, else "standby"."""
+    return "active" if row.worker_polling else "standby"
+
+
+def session_state(row: SessionRow) -> str | None:
+    """The AgentCore session's state: "active" while its Worker runs, "standby" while the drained
+    microVM waits, "ended" once AgentCore has ended it; None when the row has no session."""
+    if row.session_id is None:
+        return None
+    if not row.session_alive:
+        return "ended"
+    return "active" if row.session_worker_running else "standby"
 
 
 def build_sections(
@@ -161,27 +188,25 @@ def build_sections(
     heartbeats_by_session: Mapping[str, Mapping],
     now: float,
 ) -> list[AgentSection]:
-    """One section per agent, in config order. Each sees only its own queue's heartbeats."""
-    sections = []
-    for agent in agents:
-        heartbeats = {
-            session_id: item
-            for session_id, item in heartbeats_by_session.items()
-            if item.get("task_queue") == agent.task_queue
-        }
-        rows = build_rows(
-            workflow_ids_by_queue.get(agent.task_queue, []),
-            last_identity_by_workflow,
-            workers_by_identity,
-            heartbeats,
-            now,
+    """One section per agent, in config order, with a row per running workflow on its queue."""
+    return [
+        AgentSection(
+            agent.label,
+            agent.task_queue,
+            build_rows(
+                workflow_ids_by_queue.get(agent.task_queue, []),
+                last_identity_by_workflow,
+                workers_by_identity,
+                heartbeats_by_session,
+                now,
+            ),
         )
-        sections.append(AgentSection(agent.label, agent.task_queue, rows))
-    return sections
+        for agent in agents
+    ]
 
 
 def _row(
-    workflow_id: str | None,
+    workflow_id: str,
     session_id: str | None,
     workers_by_identity: Mapping[str, WorkerSeen] | None,
     heartbeats_by_session: Mapping[str, Mapping],

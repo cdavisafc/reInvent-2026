@@ -34,12 +34,16 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from session_status import (
     AgentConfig,
+    AgentSection,
     StatusConfig,
     WorkerSeen,
     build_sections,
     index_workers,
     load_config,
     running_workflows_query,
+    session_state,
+    short_id,
+    worker_state,
     workers_query,
 )
 
@@ -150,8 +154,19 @@ async def session_status(client: Client, table, config: StatusConfig) -> dict:
     )
     return {
         "list_workers_available": workers is not None,
-        "agents": [asdict(section) for section in sections],
+        "agents": [_section_json(section) for section in sections],
     }
+
+
+def _section_json(section: AgentSection) -> dict:
+    """A section for the page: each row with short forms of its IDs, and the states its icons show."""
+    content = asdict(section)
+    for row, session_row in zip(content["rows"], section.rows):
+        for key in ("workflow_id", "session_id"):
+            row[f"{key}_short"] = short_id(row[key]) if row[key] else None  # no session yet
+        row["worker_state"] = worker_state(session_row)
+        row["session_state"] = session_state(session_row)
+    return content
 
 
 def create_app(config: StatusConfig) -> FastAPI:
@@ -175,6 +190,9 @@ def create_app(config: StatusConfig) -> FastAPI:
     return app
 
 
+# Styled after the agent kit UI (temporal-agent-kit/typescript/apps/ui/src/app.css): dark only,
+# square corners, hairline borders, uppercase mono labels, mono identifiers. The cells' green and
+# red fills are this page's own, for status at a glance.
 PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -182,52 +200,88 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Sessions</title>
 <style>
-  :root { --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d0d7de;
-          --yes: #1a7f37; --no: #8c959f; --warn: #9a6700; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --line: #30363d;
-            --yes: #3fb950; --no: #6e7681; --warn: #d29922; }
+  :root {
+    color-scheme: dark;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --surface-0: #0b0b10; --surface-1: #141414; --surface-2: #17171f;
+    --text-1: #f8fafc; --text-2: #c7c9d4; --text-3: #8b8d9d; --text-4: #808294;
+    --border: rgba(255, 255, 255, 0.1); --border-strong: rgba(255, 255, 255, 0.22);
+    --accent: #6173f3; --success: #6ee7b7; --error: #fca5a5; --warning: #fcd34d;
+    --label-size: 10px; --label-tracking: 0.13em; --figure-size: 11px;
   }
-  body { background: var(--bg); color: var(--fg); margin: 0; padding: 16px;
-         font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  .meta { color: var(--muted); margin-bottom: 12px; }
-  details { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 12px; }
-  summary { cursor: pointer; padding: 8px 12px; font-weight: 600; }
-  summary .label { font-size: 15px; }
-  summary .counts, summary code { color: var(--muted); font-weight: normal; margin-left: 8px; }
-  details[open] summary { border-bottom: 1px solid var(--line); }
-  .wrap { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line);
-           white-space: nowrap; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--surface-0); color: var(--text-1);
+         font: 13px/1.4 var(--font-sans); -webkit-font-smoothing: antialiased; }
+  .label { font: 500 var(--label-size) var(--font-mono); letter-spacing: var(--label-tracking);
+           text-transform: uppercase; }
+  .figure { font: var(--figure-size) var(--font-mono); font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  #meta { color: var(--text-3); }
+  #meta .warn { color: var(--warning); }
+  .agents { display: flex; flex-direction: column; gap: 12px; width: 560px; max-width: 100%; }
+  details { background: var(--surface-1); border: 1px solid var(--border); }
+  summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer;
+            list-style: none; user-select: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: ""; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px;
+                    border-color: transparent transparent transparent var(--text-3);
+                    transition: transform 160ms; }
+  details[open] summary::before { transform: rotate(90deg); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  summary:hover { background: var(--surface-2); }
+  summary:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .name { font-size: 13px; font-weight: 600; }
+  .queue { color: var(--text-3); }
+  .chips { display: flex; gap: 6px; margin-left: auto; padding-left: 16px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px;
+          border: 1px solid var(--border); color: var(--text-2); white-space: nowrap; }
+  /* Fixed layout and the same column widths in every section, so the sections line up. */
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  col.agent-session { width: 64%; }
+  col.agentcore-session { width: 36%; }
+  th { padding: 6px 12px; text-align: left; color: var(--text-3); white-space: nowrap;
+       border-bottom: 1px solid var(--border); }
+  td { padding: 5px 12px; border-bottom: 1px solid var(--border); }
   tr:last-child td { border-bottom: none; }
-  th { color: var(--muted); font-weight: 600; }
-  code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .yes { color: var(--yes); font-weight: 600; }
-  .no { color: var(--no); }
-  .age { color: var(--muted); font-size: 12px; margin-left: 6px; }
-  .warn { color: var(--warn); }
-  /* Light green and red in both themes; text inside stays dark so it reads on either. */
-  :root { --ok-bg: #d8f5dd; --bad-bg: #fbdcdc; --cell-fg: #1f2328; --cell-muted: #57606a; }
-  td.ok { background: var(--ok-bg); }
-  td.bad { background: var(--bad-bg); }
-  td.ok, td.bad { color: var(--cell-fg); }
-  td.ok .yes { color: #116329; }
-  td.bad .no { color: #a40e26; font-weight: 600; }
-  td.ok .age, td.bad .age { color: var(--cell-muted); }
+  /* Light green and red fills; text inside stays dark so it reads on either. */
+  td.ok { background: #d8f5dd; color: #116329; }
+  td.bad { background: #fbdcdc; color: #a40e26; }
+  /* Rules in the panel colour, so filled cells stay distinct from their neighbours. */
+  td.ok, td.bad { border-bottom-color: var(--surface-1); }
+  td + td { border-left: 1px solid var(--surface-1); }
+  .cell { display: flex; align-items: center; gap: 8px; }
+  .id { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: #1f2328; }
+  .none { color: inherit; }
+  .icon { flex: none; width: 14px; height: 14px; }
+  .empty { color: var(--text-4); }
+  .pip { display: inline-block; width: 5px; height: 5px; }
+  .chip.yes .pip { background: var(--success); }
 </style>
 </head>
 <body>
-<h1>Agent sessions</h1>
-<div class="meta" id="meta">Loading…</div>
-<div id="agents"></div>
+<header>
+  <h1>Agent sessions</h1>
+  <span id="meta" class="figure">Loading…</span>
+</header>
+<div id="agents" class="agents"></div>
 <script>
-const age = s => s == null ? "" : `<span class="age">${Math.round(s)}s ago</span>`;
-const flag = (on, seconds) => `<span class="${on ? "yes" : "no"}">${on ? "yes" : "no"}</span>${age(seconds)}`;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"})[c]);
-const cell = v => v == null ? '<span class="no">—</span>' : `<code>${esc(v)}</code>`;
-const state = on => on ? "ok" : "bad";
+// Right-aligned state icons, in the cell's text colour: active (a bolt), standby (pause), ended (stop).
+const ICONS = {
+  active: '<path d="M8.5 1 3 9h4l-1 6 5.5-8h-4z" fill="currentColor"/>',
+  standby: '<rect x="4" y="3" width="2.5" height="10" fill="currentColor"/><rect x="9.5" y="3" width="2.5" height="10" fill="currentColor"/>',
+  ended: '<rect x="4" y="4" width="8" height="8" fill="currentColor"/>',
+};
+const icon = name => name == null ? ""
+  : `<svg class="icon" viewBox="0 0 16 16" role="img" aria-label="${name}"><title>${name}</title>${ICONS[name]}</svg>`;
+// Short form on the page; the full ID in the tooltip.
+const cell = (full, short, iconName) => `<div class="cell">${full == null
+  ? '<span class="id none figure">—</span>'
+  : `<span class="id figure" title="${esc(full)}">${esc(short ?? full)}</span>`}${icon(iconName)}</div>`;
+const fill = on => on ? "ok" : "bad";
 
 // Which sections the viewer collapsed, by task queue, so a refresh doesn't reopen them.
 const COLLAPSED_KEY = "agent-status:collapsed";
@@ -242,24 +296,28 @@ function saveCollapsed() {
 
 function rowsHtml(rows) {
   return rows.map(r => `<tr>
-      <td class="${state(r.worker_polling)}">${cell(r.workflow_id)}</td>
-      <td class="${state(r.worker_polling)}">${flag(r.worker_polling, r.worker_heartbeat_age)}</td>
-      <td class="${state(r.session_alive)}">${cell(r.session_id)}</td>
-      <td class="${state(r.session_alive)}">${r.session_id == null ? cell(null) : flag(r.session_alive, r.session_last_seen_age)}</td>
-    </tr>`).join("") || '<tr><td colspan="4" class="no">No running agent sessions.</td></tr>';
+      <td class="${fill(r.worker_polling)}">${cell(r.workflow_id, r.workflow_id_short, r.worker_state)}</td>
+      <td class="${fill(r.session_alive)}">${cell(r.session_id, r.session_id_short, r.session_state)}</td>
+    </tr>`).join("") || '<tr><td colspan="2" class="empty">No running agent sessions.</td></tr>';
 }
 
 function sectionHtml(agent) {
-  const sessions = agent.rows.filter(r => r.workflow_id != null).length;
+  const sessions = agent.rows.length;
   const polling = agent.rows.filter(r => r.worker_polling).length;
   const open = collapsed.has(agent.task_queue) ? "" : " open";
   return `<details data-queue="${esc(agent.task_queue)}"${open}>
-    <summary><span class="label">${esc(agent.label)}</span><code>${esc(agent.task_queue)}</code>
-      <span class="counts">${sessions} session${sessions === 1 ? "" : "s"} · ${polling} polling</span></summary>
+    <summary>
+      <span class="name">${esc(agent.label)}</span>
+      <span class="queue figure">${esc(agent.task_queue)}</span>
+      <span class="chips">
+        <span class="chip label">${sessions} session${sessions === 1 ? "" : "s"}</span>
+        <span class="chip label ${polling ? "yes" : ""}">${polling ? '<span class="pip"></span>' : ""}${polling} polling</span>
+      </span>
+    </summary>
     <div class="wrap"><table>
+      <colgroup><col class="agent-session"><col class="agentcore-session"></colgroup>
       <thead><tr>
-        <th>Agent Session</th><th>Agent Ready</th>
-        <th>AgentCore session ID</th><th>Session alive</th>
+        <th class="label">Agent session</th><th class="label">AgentCore session</th>
       </tr></thead>
       <tbody>${rowsHtml(agent.rows)}</tbody>
     </table></div>
@@ -279,16 +337,33 @@ async function refresh() {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     const data = await res.json();
     const source = data.list_workers_available
-      ? "Worker polling from Temporal ListWorkers"
-      : '<span class="warn">ListWorkers unavailable: Worker polling is self-reported by the session</span>';
+      ? "polling from ListWorkers"
+      : '<span class="warn">ListWorkers unavailable: polling is self-reported</span>';
     meta.innerHTML = `${source} · updated ${new Date().toLocaleTimeString()}`;
     document.getElementById("agents").innerHTML = data.agents.map(sectionHtml).join("");
   } catch (err) {
     meta.innerHTML = `<span class="warn">Refresh failed: ${esc(err.message)}</span>`;
   }
 }
+// Browsers slow a page's own timers when they decide it isn't being watched (a background tab,
+// a covered window, energy saving): Chrome, to once a minute. A dedicated worker's timers aren't
+// slowed that way, so the worker sets the pace and the page fetches on each tick.
+const REFRESH_MS = 5000;
+function startTicking() {
+  try {
+    const source = `setInterval(() => postMessage("tick"), ${REFRESH_MS});`;
+    const ticker = new Worker(URL.createObjectURL(new Blob([source], {type: "text/javascript"})));
+    ticker.onmessage = refresh;
+  } catch {
+    setInterval(refresh, REFRESH_MS);
+  }
+}
 refresh();
-setInterval(refresh, 5000);
+startTicking();
+// Catch up the moment the page is visible again, in case it was slowed anyway.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refresh();
+});
 </script>
 </body>
 </html>

@@ -13,6 +13,9 @@ from session_status import (
     load_config,
     running_workflows_query,
     session_id_from_identity,
+    session_state,
+    short_id,
+    worker_state,
     workers_query,
 )
 
@@ -128,7 +131,8 @@ def test_without_list_workers_polling_falls_back_to_the_session_report() -> None
     assert {row.polling_source for row in rows} == {"self-reported"}
 
 
-def test_live_sessions_no_workflow_points_at_are_listed_after_workflows() -> None:
+def test_sessions_no_running_workflow_points_at_are_not_shown() -> None:
+    # A UI reopening an old session can invoke a runtime for a workflow that isn't running.
     rows = build_rows(
         ["wf-1"],
         {"wf-1": "agentcore:sess-1"},
@@ -136,15 +140,11 @@ def test_live_sessions_no_workflow_points_at_are_listed_after_workflows() -> Non
         {
             "sess-1": heartbeat("sess-1", age=3),
             "sess-orphan": heartbeat("sess-orphan", age=2),
-            "sess-dead": heartbeat("sess-dead", age=500),
         },
         NOW,
     )
 
-    assert [(row.workflow_id, row.session_id) for row in rows] == [
-        ("wf-1", "sess-1"),
-        (None, "sess-orphan"),
-    ]
+    assert [(row.workflow_id, row.session_id) for row in rows] == [("wf-1", "sess-1")]
 
 
 AGENT_A = AgentConfig(label="Agent A", task_queue="queue-a")
@@ -169,11 +169,11 @@ def test_sections_follow_config_order_with_each_agents_workflows() -> None:
     assert [row.workflow_id for row in sections[1].rows] == ["wf-a"]
 
 
-def test_live_sessions_no_workflow_points_at_appear_only_under_their_own_queue() -> None:
-    sections = build_sections(
+def test_each_section_finds_its_workflows_sessions() -> None:
+    [section_a, section_b] = build_sections(
         [AGENT_A, AGENT_B],
-        {"queue-a": [], "queue-b": []},
-        {},
+        {"queue-a": ["wf-a"], "queue-b": []},
+        {"wf-a": "agentcore:sess-a"},
         {},
         {
             "sess-a": heartbeat("sess-a", age=2, task_queue="queue-a"),
@@ -182,20 +182,10 @@ def test_live_sessions_no_workflow_points_at_appear_only_under_their_own_queue()
         NOW,
     )
 
-    assert [[row.session_id for row in s.rows] for s in sections] == [["sess-a"], ["sess-b"]]
-
-
-def test_heartbeats_for_unconfigured_queues_are_not_shown() -> None:
-    [section] = build_sections(
-        [AGENT_A],
-        {"queue-a": []},
-        {},
-        {},
-        {"sess-x": heartbeat("sess-x", age=2, task_queue="some-other-queue")},
-        NOW,
-    )
-
-    assert section.rows == []
+    assert [(row.workflow_id, row.session_id, row.session_alive) for row in section_a.rows] == [
+        ("wf-a", "sess-a", True)
+    ]
+    assert section_b.rows == []
 
 
 def test_running_workflows_query_narrows_by_workflow_type_only_when_configured() -> None:
@@ -266,3 +256,58 @@ workflow_type = "ReactAgent"
 def test_load_config_rejects_incomplete_files(tmp_path, text: str, message: str) -> None:
     with pytest.raises(ConfigError, match=message):
         load_config(write_config(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    ("full", "short"),
+    [
+        # The meaningful prefix stays; the UUID keeps its first 6 hex digits.
+        ("agent-session-dfb18081-3c2a-4e1b-9f00-1234567890ab", "agent-session-dfb180…"),
+        # Anything after the UUID stays too.
+        ("agent-session-dfb18081-3c2a-4e1b-9f00-1234567890ab/shipping", "agent-session-dfb180…/shipping"),
+        # A subagent's ID can carry its parent's UUID and its own: both are shortened.
+        (
+            (
+                "agent-session-dfb18081-3c2a-4e1b-9f00-1234567890ab-shipping-"
+                "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            ),
+            "agent-session-dfb180…-shipping-7a1b2c…",
+        ),
+        # A bare UUID, as an AgentCore session ID can be.
+        ("0f9e8d7c-6b5a-4f3e-8d2c-1b0a9f8e7d6c", "0f9e8d…"),
+        # A long run of hex without dashes counts as one ID.
+        ("sess-0123456789abcdef0123456789abcdef", "sess-012345…"),
+        # Nothing to shorten.
+        ("wf-1", "wf-1"),
+    ],
+)
+def test_short_id_keeps_the_prefix_and_the_start_of_the_uuid(full: str, short: str) -> None:
+    assert short_id(full) == short
+
+
+def _one_row(worker_status: str | None, heartbeat_age: float | None, worker_running: bool):
+    workers = [WorkerSeen("agentcore:sess-1", worker_status, NOW - 5)] if worker_status else []
+    beats = {"sess-1": heartbeat("sess-1", heartbeat_age, worker_running)} if heartbeat_age else {}
+    [row] = build_rows(
+        ["wf-1"], {"wf-1": "agentcore:sess-1"}, index_workers(workers), beats, NOW
+    )
+    return row
+
+
+def test_agent_session_is_active_while_polled_and_on_standby_otherwise() -> None:
+    assert worker_state(_one_row("RUNNING", 3, True)) == "active"
+    # Drained, waiting (for an approval, say) until the next invoke.
+    assert worker_state(_one_row("SHUTDOWN", 3, False)) == "standby"
+
+
+def test_agentcore_session_is_active_standby_or_ended() -> None:
+    assert session_state(_one_row("RUNNING", 3, True)) == "active"
+    # The Worker drained and the microVM idles until AgentCore ends it.
+    assert session_state(_one_row("SHUTDOWN", 3, False)) == "standby"
+    assert session_state(_one_row(None, 90, False)) == "ended"
+
+
+def test_a_workflow_without_an_agentcore_session_has_no_session_state() -> None:
+    [row] = build_rows(["wf-1"], {"wf-1": None}, {}, {}, NOW)
+
+    assert session_state(row) is None

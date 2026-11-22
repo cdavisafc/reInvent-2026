@@ -3,7 +3,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   DynamoDB table holding one liveness item per AgentCore runtime session, shared by every
   agent's runtimes (each project's session_heartbeat.py) and read by the local status page
-  (agent_status/status_page.py), which groups items by their task_queue.
+  (agent_status/status_page.py), which looks up each running workflow's session.
 
 Parameters:
   TableName:

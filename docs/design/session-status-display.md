@@ -89,8 +89,8 @@ Freshness rules (`session_status.FRESH_SECONDS = 30`, three missed beats):
    (2) next to its successor's `RUNNING` (1). If a server doesn't offer `ListWorkers`, the page
    falls back to the self-reported column and says so in its header.
 2. **AgentCore neither pauses nor keeps alive idle sessions because of the heartbeat.** The check:
-   the heartbeat should stop about `idleRuntimeSessionTimeout` (60s) after the Worker's "drained"
-   log line.
+   the heartbeat should stop about `idleRuntimeSessionTimeout` (60s) after the Worker's
+   "worker drained in …" log line.
    - A stop hours later would mean it keeps sessions alive.
    - A stop before the timeout would mean idle processes are paused.
 3. **The reverse-history RPC is available,** and the latest `WorkflowTaskStarted` is within the
