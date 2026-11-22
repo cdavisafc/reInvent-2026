@@ -29,13 +29,14 @@ class RecordingWriter:
 
 async def test_beat_writes_session_liveness_item() -> None:
     writer = RecordingWriter()
-    heartbeat = SessionHeartbeat("session-abc", writer, clock=lambda: 1000.4)
+    heartbeat = SessionHeartbeat("session-abc", "queue-a", writer, clock=lambda: 1000.4)
 
     await heartbeat.beat()
 
     assert writer.items == [
         {
             "session_id": "session-abc",
+            "task_queue": "queue-a",
             "started_at": 1000,
             "last_seen": 1000,
             "expires_at": 1000 + 3600,
@@ -46,7 +47,7 @@ async def test_beat_writes_session_liveness_item() -> None:
 
 async def test_worker_state_is_written_with_its_identity() -> None:
     writer = RecordingWriter()
-    heartbeat = SessionHeartbeat("session-abc", writer, clock=lambda: 1000)
+    heartbeat = SessionHeartbeat("session-abc", "queue-a", writer, clock=lambda: 1000)
 
     heartbeat.set_worker_running(True, "agentcore:session-abc")
     await heartbeat.beat()
@@ -57,7 +58,7 @@ async def test_worker_state_is_written_with_its_identity() -> None:
 
 async def test_beats_repeatedly_on_interval() -> None:
     writer = RecordingWriter()
-    heartbeat = SessionHeartbeat("session-abc", writer, interval=0.01)
+    heartbeat = SessionHeartbeat("session-abc", "queue-a", writer, interval=0.01)
 
     heartbeat.start()
     await writer.wait_for(3)
@@ -67,7 +68,7 @@ async def test_beats_repeatedly_on_interval() -> None:
 
 async def test_worker_state_change_beats_immediately() -> None:
     writer = RecordingWriter()
-    heartbeat = SessionHeartbeat("session-abc", writer, interval=60)
+    heartbeat = SessionHeartbeat("session-abc", "queue-a", writer, interval=60)
 
     heartbeat.start()
     await writer.wait_for(1)
@@ -80,7 +81,7 @@ async def test_worker_state_change_beats_immediately() -> None:
 
 async def test_failed_write_does_not_stop_the_heartbeat() -> None:
     writer = RecordingWriter(fail_first=2)
-    heartbeat = SessionHeartbeat("session-abc", writer, interval=0.01)
+    heartbeat = SessionHeartbeat("session-abc", "queue-a", writer, interval=0.01)
 
     heartbeat.start()
     await writer.wait_for(1)
@@ -89,7 +90,7 @@ async def test_failed_write_does_not_stop_the_heartbeat() -> None:
 
 
 async def test_start_is_idempotent() -> None:
-    heartbeat = SessionHeartbeat("session-abc", RecordingWriter(), interval=60)
+    heartbeat = SessionHeartbeat("session-abc", "queue-a", RecordingWriter(), interval=60)
 
     heartbeat.start()
     first = heartbeat._task

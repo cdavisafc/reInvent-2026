@@ -51,7 +51,7 @@
         },
         {
           "name": "SESSION_HEARTBEAT_TABLE",
-          "value": "react-agent-sessions-heartbeats"
+          "value": "agent-session-heartbeats"
         }
       ],
       "lifecycleConfiguration": {

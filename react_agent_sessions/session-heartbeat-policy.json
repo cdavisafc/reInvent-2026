@@ -5,7 +5,7 @@
       "Sid": "WriteSessionHeartbeats",
       "Effect": "Allow",
       "Action": "dynamodb:PutItem",
-      "Resource": "arn:aws:dynamodb:*:*:table/react-agent-sessions-heartbeats"
+      "Resource": "arn:aws:dynamodb:*:*:table/agent-session-heartbeats"
     }
   ]
 }

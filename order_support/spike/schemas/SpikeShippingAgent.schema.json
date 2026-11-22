@@ -1,0 +1,48 @@
+{
+  "agent": "SpikeShippingAgent",
+  "source": "spike.shipping_workflow:SpikeShippingAgentWorkflow",
+  "init_data": null,
+  "handlers": {
+    "ask": {
+      "description": "Ask the shipping specialist about an order's shipment: where it is, when it will\narrive, or to expedite it.",
+      "mid_turn": "reject",
+      "input": {
+        "$ref": "#/$defs/TextMessage"
+      },
+      "output": {
+        "$ref": "#/$defs/TextReply"
+      }
+    }
+  },
+  "states": {},
+  "$defs": {
+    "TextMessage": {
+      "description": "Free-form natural-language text from the user (the input to a plain chat handler).",
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TextMessage",
+      "type": "object"
+    },
+    "TextReply": {
+      "description": "A free-form natural-language reply (the output of a plain chat handler).",
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TextReply",
+      "type": "object"
+    }
+  }
+}

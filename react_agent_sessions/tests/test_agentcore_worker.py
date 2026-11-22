@@ -83,6 +83,9 @@ async def test_invoke_starts_session_heartbeat_once(
     assert first is not None
     assert agentcore_worker._heartbeat is first
     assert {item["session_id"] for item in heartbeat_items} == {"runtime-session-1"}
+    assert {item["task_queue"] for item in heartbeat_items} == {
+        agentcore_worker.WORKER_TASK_QUEUE
+    }
 
 
 async def test_no_heartbeat_without_table_or_session(

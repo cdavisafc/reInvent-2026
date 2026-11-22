@@ -32,12 +32,15 @@ class SessionHeartbeat:
     def __init__(
         self,
         session_id: str,
+        task_queue: str,
         write_item: Callable[[dict], None],
         *,
         interval: float = 10.0,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.session_id = session_id
+        # The agent this session's Worker serves: the status page groups sessions by it.
+        self.task_queue = task_queue
         self._write_item = write_item
         self._interval = interval
         self._clock = clock
@@ -70,6 +73,7 @@ class SessionHeartbeat:
         now = int(self._clock())
         item: dict = {
             "session_id": self.session_id,
+            "task_queue": self.task_queue,
             "started_at": self._started_at,
             "last_seen": now,
             "expires_at": now + ITEM_TTL_SECONDS,

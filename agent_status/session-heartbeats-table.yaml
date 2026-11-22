@@ -1,14 +1,15 @@
 # CloudFormation template for the DynamoDB table that AgentCore sessions write their liveness heartbeat to.
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  DynamoDB table holding one liveness item per AgentCore runtime session, written by the
-  runtime (session_heartbeat.py) and read by the local status page (status_page.py).
+  DynamoDB table holding one liveness item per AgentCore runtime session, shared by every
+  agent's runtimes (each project's session_heartbeat.py) and read by the local status page
+  (agent_status/status_page.py), which groups items by their task_queue.
 
 Parameters:
   TableName:
     Type: String
-    Default: "react-agent-sessions-heartbeats"
-    Description: Must match SESSION_HEARTBEAT_TABLE in agentcore/agentcore.json and session-heartbeat-policy.json.
+    Default: "agent-session-heartbeats"
+    Description: Must match heartbeat_table in agents.toml, and SESSION_HEARTBEAT_TABLE and session-heartbeat-policy.json in each agent project.
 
 Resources:
   SessionHeartbeats:

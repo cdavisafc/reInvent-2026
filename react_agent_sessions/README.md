@@ -86,10 +86,9 @@ runtime again.
 | `bin/put-secrets.sh` | Creates/updates that secret from your shell environment |
 | `bin/create-runtime.sh` | Creates/updates the runtime with the AgentCore CLI |
 | `bin/mk-invoke-role.sh`, `iam-role-for-temporal-agentcore-invoke.yaml` | The role the Temporal server assumes to invoke the runtime |
-| `session_heartbeat.py` | The AgentCore session's liveness heartbeat, written to DynamoDB until the microVM ends |
-| `session_status.py`, `status_page.py` | Local status page: per agent session, is a Worker polling and is its AgentCore session alive |
-| `session-heartbeats-table.yaml`, `bin/mk-heartbeat-table.sh` | The DynamoDB table the heartbeat writes to |
+| `session_heartbeat.py` | The AgentCore session's liveness heartbeat, written to the shared DynamoDB table until the microVM ends |
 | `session-heartbeat-policy.json` | Grants the runtime's execution role write access to that table |
+| `../agent_status/` | The status page, and the shared heartbeat table it reads (see [The status page](#the-status-page)) |
 | `../prerelease/build-local-wheels.sh` | Builds the prerelease temporalio wheels (temporary; lives outside this directory, see below) |
 
 ## Prerequisites
@@ -188,15 +187,16 @@ the region the runtime deploys to. To use a different target, pass it as the sec
 `./bin/put-secrets.sh react-agent-sessions/keys <target>`.
 
 Then create the DynamoDB table each AgentCore session writes its liveness heartbeat to (read by
-the [status page](#the-status-page)). Use the region the runtime deploys to:
+the [status page](#the-status-page)), if you haven't already for another agent. Every agent shares
+it. Use the region the runtime deploys to:
 
 ```bash
 AWS_REGION=$(python3 -c 'import json; print(json.load(open("agentcore/aws-targets.json"))[0]["region"])') \
-  ./bin/mk-heartbeat-table.sh
+  ../agent_status/bin/mk-heartbeat-table.sh
 ```
 
-It creates the stack and table `react-agent-sessions-heartbeats`. The runtime's execution role
-gets write access through `session-heartbeat-policy.json`, which `agentcore.json` lists under
+It creates the stack and table `agent-session-heartbeats`. The runtime's execution role gets write
+access through `session-heartbeat-policy.json`, which `agentcore.json` lists under
 `additionalPolicies`.
 
 ### 2. Configure the runtime
@@ -352,36 +352,13 @@ period). No CLI command lists runtime sessions, which is why the status page bel
 
 ### The status page
 
-A local page showing, for each running agent session, whether a Worker is polling for it and
-whether its AgentCore session is alive. Run it as one more local process, with the same
-`TEMPORAL_*` variables as the harness CLI plus AWS credentials and `AWS_REGION`:
+[`../agent_status/`](../agent_status/README.md) is a local page showing, for each running agent
+session, whether a Worker is polling for it and whether its AgentCore session is alive. It covers
+every agent listed in its `agents.toml`, this one included:
 
 ```bash
-uv run python status_page.py      # http://127.0.0.1:8100
+cd ../agent_status && uv run python status_page.py      # http://127.0.0.1:8100
 ```
-
-| Column | Source |
-|---|---|
-| Agent Session | Running `ReactAgent` workflow IDs on `react-agent-sessions` (Temporal visibility) |
-| Agent Ready | Whether a Worker is polling: Temporal `ListWorkers`, from the SDK's worker heartbeats (every 10s) |
-| AgentCore session ID | The identity on the workflow's latest workflow task: Workers connect as `agentcore:<session id>` |
-| Session alive | The session heartbeat in DynamoDB (every 10s) |
-
-The Agent Session and Agent Ready cells are green while a Worker is polling and red otherwise; the
-AgentCore session ID and Session alive cells are green while the session is alive and red otherwise.
-
-The two heartbeats have different lifetimes. The Temporal Worker heartbeat stops when the Worker
-drains. The session heartbeat is a separate task in the runtime process. It keeps beating while
-the drained microVM waits, and stops only when AgentCore ends the session. Expect a workflow to go
-from polling and alive, to not polling but alive (`AGENTCORE_DEBOUNCE_SECONDS` after its last
-activity), to not alive (`idleRuntimeSessionTimeout` later). Live sessions no workflow points at,
-such as the bootstrap invoke from `create-version`, are listed after the workflows.
-
-The session heartbeat never registers an AgentCore async task. If it did, `/ping` would report
-`HealthyBusy`, and the session would stay alive, and billed, until `maxLifetime`.
-
-If the server doesn't offer `ListWorkers`, the page says so and the Worker polling column falls
-back to the session's own report.
 
 ## Development
 

@@ -31,7 +31,7 @@ Activity the agent workflow starts on this task queue -- model calls and tools -
 one workflow for the Worker's lifetime. This needs a Temporal Service with sticky activity
 execution enabled.
 
-Two heartbeats feed the local status page (status_page.py):
+Two heartbeats feed the local status page (../agent_status/status_page.py):
 
 - The Temporal Worker heartbeat: the SDK reports the Worker to the Temporal server every
   WORKER_HEARTBEAT, read back with ListWorkers. It stops when the Worker drains. The Worker's
@@ -192,7 +192,9 @@ def _start_heartbeat(session_id: str | None) -> None:
     global _heartbeat
     if _heartbeat is not None or not (HEARTBEAT_TABLE and session_id):
         return
-    _heartbeat = SessionHeartbeat(session_id, _heartbeat_writer(HEARTBEAT_TABLE))
+    _heartbeat = SessionHeartbeat(
+        session_id, WORKER_TASK_QUEUE, _heartbeat_writer(HEARTBEAT_TABLE)
+    )
     _heartbeat.start()
 
 

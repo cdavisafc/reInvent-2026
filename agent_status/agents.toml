@@ -1,0 +1,21 @@
+# ABOUTME: Status page config: the shared DynamoDB heartbeat table and the agents to show, one
+# collapsible section per agent (task queue), in this order.
+
+# Every AgentCore runtime writes its session heartbeat here (SESSION_HEARTBEAT_TABLE).
+heartbeat_table = "agent-session-heartbeats"
+
+# label: the section's title. task_queue: the queue the agent's Workers poll.
+# workflow_type (optional): narrows the listing when the queue runs other workflow types too.
+
+[[agents]]
+label = "Weather Agent"
+task_queue = "react-agent-sessions"
+workflow_type = "ReactAgent"
+
+[[agents]]
+label = "Order Concierge"
+task_queue = "spike-concierge"
+
+[[agents]]
+label = "Order Shipping"
+task_queue = "spike-shipping"
