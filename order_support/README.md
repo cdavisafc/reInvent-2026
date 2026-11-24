@@ -40,6 +40,7 @@ Both runtimes deploy the same code (`agentcore_worker.py`). The `ORDER_SUPPORT_A
 | `spike/contracts.py` | The stub class the concierge reflects on to call the shipping agent |
 | `spike/shipping_tools.py`, `human_tools.py` | The agents' tools |
 | `spike/keyword_tools.py` | Workaround for a harness bug in `subagent_toolset` (see the research note) |
+| `subagent_signals.py` | Local fix: the concierge waits for a subagent's reply signal in its workflow instead of in an activity, so its Worker can drain (see Notes) |
 | `spike/agents.toml`, `spike/schemas/` | Harness registry for the web UI, and the schemas it points at |
 | `activity_sessions.py` | `session_config_for()` and `ActivitySessionInterceptor` |
 | `runtime_secrets.py` | Loads the API keys from Secrets Manager when a Worker starts |
@@ -214,10 +215,14 @@ uv run temporal-agent-harness schema spike.shipping_workflow:SpikeShippingAgentW
 
 ## Notes
 
-- **Approvals inside the subagent.** When the shipping agent waits for an approval, nothing is in
-  flight on its Worker, so after `AGENTCORE_DEBOUNCE_SECONDS` it drains and its microVM ends. The
-  approval triggers a new invoke. The concierge's microVM stays up, and billed, the whole time,
-  because its `run_subagent_turn` Activity is waiting on the child. That Activity times out after
-  1 hour (the harness's `DEFAULT_SUBAGENT_START_TO_CLOSE_TIMEOUT`), so approve within the hour.
+- **Approvals inside the subagent.** While the shipping agent waits for an approval, neither
+  Worker has anything in flight, so both drain after `AGENTCORE_DEBOUNCE_SECONDS` and both microVMs
+  end. The approval invokes the shipping runtime. Shipping's reply signal then invokes the
+  concierge's, which finishes the answer. The concierge waits for that reply for up to 24 hours.
+  - This relies on `subagent_signals.py`, a local fix. The harness's own subagent turn holds an
+    activity open on the parent for the whole wait. The proposed upstream fix is in
+    `../docs/research/agent-kit-issue-subagent-turn-holds-parent-worker.md`.
+  - A subagent signals its parent after every message it handles. So messaging the nested Shipping
+    agent directly in the UI also invokes the concierge briefly, which ignores that reply.
 - **Large payloads.** Both Workers turn off the harness's large-payload offload, locally too. The
   default would write to the runtime's ephemeral disk, which the local session manager can't read.

@@ -5,7 +5,7 @@
 key = "spike-concierge"
 workflow_type = "SpikeConciergeAgent"
 task_queue = "spike-concierge"
-label = "Spike: Concierge (OpenAI) -> Shipping (Strands)"
+label = "Order Concierge"
 schema = "schemas/SpikeConciergeAgent.schema.json"
 description = """
 The step-1 spike parent: an OpenAI Agents SDK concierge that hands shipping questions to a Strands
@@ -16,7 +16,7 @@ asks for approval inside the nested Shipping subagent."""
 key = "spike-shipping"
 workflow_type = "SpikeShippingAgent"
 task_queue = "spike-shipping"
-label = "Spike: Shipping (Strands, Claude on Bedrock)"
+label = "Order Shipping Specialist"
 schema = "schemas/SpikeShippingAgent.schema.json"
 description = """
 The step-1 spike child, used directly: a Strands agent (Claude on Bedrock) that tracks and expedites

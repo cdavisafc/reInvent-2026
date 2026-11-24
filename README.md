@@ -39,6 +39,11 @@ Open http://127.0.0.1:5173. The UI is run from the agent kit's source for now; s
 `react_agent_sessions/README.md#running-the-ui-from-the-agent-kit-temporary`. Don't run
 `order_support`'s local `spike.worker` alongside: it would compete with AgentCore for the queues.
 
+An agent session open in the UI keeps that agent's Worker running: the UI polls the session's
+event stream, and the workflow answers each poll on a Worker. To watch Workers drain and sessions
+end, close the session's tab. A tab that's in front in a hidden or minimised window still counts as
+open.
+
 `serve` keeps the agent list in the running `session-manager` workflow, and ignores the registries
 it's given while that workflow runs. The first time you switch to the combined list, or after
 changing either registry, run `temporal workflow terminate --workflow-id session-manager`, then

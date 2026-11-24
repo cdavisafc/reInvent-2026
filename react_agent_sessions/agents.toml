@@ -5,7 +5,7 @@
 key = "react-agent-sessions"
 workflow_type = "ReactAgent"
 task_queue = "react-agent-sessions"
-label = "ReAct Agent (activity sessions)"
+label = "Weather Assistant"
 schema = "ReactAgent.schema.json"
 description = """
 A ReAct-style agent on the OpenAI Agents SDK, with its Temporal Worker running serverless on Amazon

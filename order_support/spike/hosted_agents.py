@@ -24,6 +24,7 @@ from temporal_agent_harness.ai_sdks.strands_agents_harness import (
 )
 from temporal_agent_harness.plugin import AgentHarnessPlugin
 from temporalio.client import Plugin
+from temporalio.plugin import SimplePlugin
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
@@ -34,6 +35,7 @@ from spike.concierge_workflow import CONCIERGE_TASK_QUEUE, SpikeConciergeAgentWo
 from spike.contracts import SHIPPING_TASK_QUEUE
 from spike.shipping_tools import SHIPPING_TOOLS
 from spike.shipping_workflow import MODEL, SpikeShippingAgentWorkflow
+from subagent_signals import send_subagent_message
 
 BEDROCK_MODEL_ID = os.environ.get(
     "SHIPPING_BEDROCK_MODEL_ID", "global.anthropic.claude-opus-5-5"
@@ -73,6 +75,9 @@ def concierge_plugins(model_provider: ModelProvider | None = None) -> list[Plugi
             ),
             observer_factory=openai_observer_factory,
         ),
+        # The concierge sends to its subagents with this activity, then waits for their reply
+        # signal in the workflow (subagent_signals.py).
+        SimplePlugin("order-support-subagent-signals", activities=[send_subagent_message]),
         # Listed last so its data converter layers on top of the OpenAI plugin's.
         _harness_plugin(HUMAN_TOOLS),
     ]

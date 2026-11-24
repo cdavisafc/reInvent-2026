@@ -18,11 +18,11 @@ with workflow.unsafe.imports_passed_through():
         TextReply,
         ToolApprovalPolicy,
     )
-    from temporal_agent_harness.harness.agent_workflow import AgentWorkflowRunner
 
     from human_tools import HUMAN_TOOLS
     from spike.contracts import SHIPPING_WORKFLOW_TYPE
     from spike.shipping_tools import SHIPPING_TOOLS
+    from subagent_signals import SubagentSignalRunner
 
 # The name the worker's StrandsPlugin(models=...) registers the Bedrock model under.
 MODEL = "bedrock"
@@ -42,7 +42,7 @@ class SpikeShippingAgentWorkflow:
 
     @agent.init
     def __init__(self, config: AgentConfig) -> None:
-        self._runner = AgentWorkflowRunner(
+        self._runner = SubagentSignalRunner(
             config,
             stream=WorkflowStream(),
             # track_shipment and ask_user run freely; expedite_shipment waits for a person.

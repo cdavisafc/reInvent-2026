@@ -129,6 +129,53 @@ the way AgentCore's does.
 **Upstream.** Worth raising with temporal-agent-kit: the Strands plugin could pass `opentelemetry`
 through itself, since Strands always starts spans in the workflow.
 
+### Finding: a subagent turn keeps the parent's Worker busy while the child waits
+
+**Symptom.** After a Concierge turn that used Shipping, Shipping's Worker drained and its AgentCore
+session ended, but the Concierge's Worker kept polling and its session stayed up. Nothing was
+being sent: no UI open, no traffic.
+
+**Cause.** Each `shipping_ask` call runs the harness's `run_subagent_turn` activity on the
+Concierge's Worker. The activity sends the message to Shipping and then holds open, heartbeating,
+until Shipping's turn ends. The Concierge's Worker drains only once no activity is in flight
+(`agentcore_worker.ActivityTracker`), so it stays up, and billed, for as long as Shipping's turn
+is open. When Shipping waits for a person, for example the expedite approval, Shipping's own
+Worker drains, because it waits inside its workflow. The Concierge's activity times out after
+1 hour (`DEFAULT_SUBAGENT_START_TO_CLOSE_TIMEOUT`).
+
+This is how the harness works, not a setting: temporal-agent-harness 0.11.1 and the kit source at
+0.12.0 (`subagent_activities.py`; `agent_workflow.py`, `AgentWorkflowRunner.run_subagent_turn`)
+both block in the activity by design.
+
+**Fix.** Upstream. The proposal, in
+[`agent-kit-issue-subagent-turn-holds-parent-worker.md`](agent-kit-issue-subagent-turn-holds-parent-worker.md):
+a short activity sends the message, the child signals the parent with the reply when its turn
+ends, and the parent waits in its workflow. Then neither agent holds a Worker while a person
+decides.
+
+**Local fix (2026-11-22).** `order_support/subagent_signals.py` implements that proposal for the
+demo, without changing the kit. Both agents use `SubagentSignalRunner`, an `AgentWorkflowRunner`
+subclass:
+- **Parent.** It overrides `run_subagent_turn`, copied from harness 0.11.1 with only the blocking
+  activity replaced. The short `send_subagent_message` activity sends the message. The workflow
+  publishes `subagent_message_sent`, using the child's `accepted_offset` as `from_offset`, then
+  waits for the reply signal for that `message_id`, for up to 24h. The FIFO gate,
+  `subagent_reply_received` and the `AgentClosed` handling are the harness's own.
+- **Child.** It overrides the private `_dispatch_turn` and `_run_participant` hooks. After
+  handling a message, and after `turn_end` when it's the last participant, the child signals its
+  parent with the reply or the error, plus its stream offset.
+
+Costs and limits:
+- A child signals its parent for every message it handles. A person messaging a nested subagent
+  directly therefore wakes, and invokes, the parent for a reply it ignores.
+- It overrides private harness methods, so it's tied to the locked harness version. The e2e tests
+  guard it. `test_concierge_holds_nothing_while_shipping_waits_for_approval` checks that the
+  Concierge has no pending activity while Shipping waits for approval. It then finishes the turn on
+  a new Concierge Worker. That test failed with the harness's activity.
+
+To see what keeps a Worker up, `agentcore_worker.py` logs each activity's name and workflow when
+it starts and finishes.
+
 ### Related fix: no environment reads in workflow code
 
 The concierge workflow module used to read `SPIKE_CONCIERGE_STREAM` at import to choose
@@ -143,7 +190,7 @@ Setup and commands: `order_support/README.md` (run locally, or deploy to AgentCo
 
 In the UI:
 
-1. Open **Spike: Concierge** and send "Where is order 1042? Expedite it."
+1. Open **Order Concierge** and send "Where is order 1042? Expedite it."
 2. Check that Shipping appears nested under Concierge, the expedite approval appears on the nested
    Shipping subagent, and approving it there completes the Concierge's answer.
 
@@ -158,6 +205,10 @@ Open questions:
 - **An approval after the child's Worker drains, on AgentCore.** The approval should trigger a new
   invoke of the shipping runtime, with a new AgentCore session, and the child workflow has to move
   to that Worker.
+- **Both Workers draining while the child waits, on AgentCore (local fix above).** With the
+  approval left open, both sessions should end about 60s after the last activity. After approval,
+  Shipping's reply signal should invoke the Concierge in a new session, which then finishes the
+  answer.
 
 ## Other notes
 

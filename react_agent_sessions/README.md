@@ -321,7 +321,7 @@ uv run temporal-agent-harness serve agents.toml --port 8000
 uv run python client.py
 ```
 
-Open http://localhost:8000 and pick **ReAct Agent (activity sessions)**, or use the terminal client.
+Open http://localhost:8000 and pick **Weather Assistant**, or use the terminal client.
 For now, use the agent kit's UI on :5173 instead; see
 [Running the UI from the agent kit (temporary)](#running-the-ui-from-the-agent-kit-temporary).
 Try *"What's the weather in Tokyo?"*, which chains the tools. Then try *"What's the weather?"*. It's

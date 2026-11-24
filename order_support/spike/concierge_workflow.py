@@ -17,7 +17,6 @@ with workflow.unsafe.imports_passed_through():
         TextReply,
         ToolApprovalPolicy,
     )
-    from temporal_agent_harness.harness.agent_workflow import AgentWorkflowRunner
 
     from human_tools import HUMAN_TOOLS
     from spike.contracts import (
@@ -26,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
         ShippingContract,
     )
     from spike.keyword_tools import keyword_only
+    from subagent_signals import SubagentSignalRunner
 
 CONCIERGE_TASK_QUEUE = "spike-concierge"
 DEFAULT_MODEL = "gpt-5.6-luna"
@@ -61,7 +61,7 @@ class SpikeConciergeAgentWorkflow:
 
     @agent.init
     def __init__(self, config: AgentConfig) -> None:
-        self._runner = AgentWorkflowRunner(
+        self._runner = SubagentSignalRunner(
             config, stream=WorkflowStream(), approval_policy_default=APPROVAL_POLICY
         )
         self._conversation: list[TResponseInputItem] = []
