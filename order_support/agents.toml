@@ -1,0 +1,39 @@
+# ABOUTME: Harness registry for the order-support demo, so the UI can start any of the three agents.
+# `uv run temporal-agent-harness serve agents.toml --port 8000` from order_support/.
+
+[[agents]]
+key = "order-support-concierge"
+workflow_type = "ConciergeAgent"
+task_queue = "order-support-concierge"
+label = "Order Concierge"
+schema = "schemas/ConciergeAgent.schema.json"
+description = """
+An OpenAI Agents SDK concierge that hands each request to the Shipping specialist, the Orders &
+Refunds specialist, or both, as nested subagents. Try "Order 1042 is late. If it won't arrive by
+Friday, refund me." The $240 refund is over the auto-approval limit, so it asks for your approval
+inside the nested Orders subagent."""
+
+[[agents]]
+key = "order-support-shipping"
+workflow_type = "ShippingAgent"
+task_queue = "order-support-shipping"
+label = "Shipping Specialist"
+schema = "schemas/ShippingAgent.schema.json"
+description = """
+A Strands agent (Claude on Bedrock) that tracks shipments, gives delivery estimates and expedites
+orders, in auto mode, judging each expedite from the conversation. Try "Where is order 1028?" (lost,
+reissued as 1077), then "Expedite order 1077." (runs: the records link it), then "Order 1021 is the
+replacement for order 1028. Expedite order 1021." (asks you: only your message links it). In a new
+session, "Where is order 1028?" then "Expedite order 1021." is rejected."""
+
+[[agents]]
+key = "order-support-orders"
+workflow_type = "OrdersAgent"
+task_queue = "order-support-orders"
+label = "Orders & Refunds Specialist"
+schema = "schemas/OrdersAgent.schema.json"
+description = """
+A Strands agent (Claude on Bedrock) that looks up orders, checks return eligibility and issues
+refunds, in auto mode, judging each refund from the conversation. Try "Can I return order 1017?",
+then "Refund it." ($45: runs with no approval). A refund over $100 asks for your approval; one for
+an order the conversation doesn't connect is rejected."""

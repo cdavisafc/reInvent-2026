@@ -1,10 +1,10 @@
 {
-  "agent": "SpikeShippingAgent",
-  "source": "spike.shipping_workflow:SpikeShippingAgentWorkflow",
+  "agent": "OrdersAgent",
+  "source": "orders.workflow:OrdersAgentWorkflow",
   "init_data": null,
   "handlers": {
     "ask": {
-      "description": "Ask the shipping specialist about an order's shipment: where it is, when it will\narrive, or to expedite it.",
+      "description": "Ask the orders & refunds specialist about an order or a customer's orders: what was\nbought, whether it can be returned, or to refund it.",
       "mid_turn": "reject",
       "input": {
         "$ref": "#/$defs/TextMessage"

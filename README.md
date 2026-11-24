@@ -11,7 +11,7 @@ it goes idle.
 | [`strands_agent/`](strands_agent/) | A Strands agent with the AgentCore Code Interpreter as a tool (from `temporalio/samples-python`) |
 | [`react_agent/`](react_agent/) | The temporal-agent-harness ReAct agent (OpenAI Agents SDK): weather tools plus a human-in-the-loop `ask_user` tool |
 | [`react_agent_sessions/`](react_agent_sessions/) | The same ReAct agent with prerelease **activity sessions**: a workflow's activities run on its own Worker (one AgentCore session per workflow). Needs locally built temporalio wheels |
-| [`order_support/`](order_support/) | An OpenAI Agents SDK concierge calling a Strands (Claude on Bedrock) shipping specialist as a harness subagent, each on its own AgentCore runtime with activity sessions. Currently the spike's minimal agents; needs locally built temporalio wheels |
+| [`order_support/`](order_support/) | An OpenAI Agents SDK concierge calling two Strands (Claude on Bedrock) specialists, Shipping and Orders & Refunds, as harness subagents, each on its own AgentCore runtime with activity sessions. Mock store data; needs locally built temporalio wheels |
 | [`agent_status/`](agent_status/) | A local status page for all of the above that run on AgentCore with a session heartbeat: one section per agent (task queue, from `agents.toml`) showing whether each session's Worker is polling and whether its AgentCore session is alive. Owns the shared DynamoDB heartbeat table |
 
 Each example is a self-contained uv project and AgentCore project. The CodeZip build zips the
@@ -30,14 +30,14 @@ profile) and AWS credentials exported, run each of these in its own terminal:
 | Process | Command | Port |
 |---|---|---|
 | Session manager | `cd order_support && uv run temporal-agent-harness session-manager` | none |
-| HTTP API, all three agents | `cd order_support && uv run temporal-agent-harness serve ../react_agent_sessions/agents.toml spike/agents.toml --port 8000` | 8000 |
+| HTTP API, all three agents | `cd order_support && uv run temporal-agent-harness serve ../react_agent_sessions/agents.toml agents.toml --port 8000` | 8000 |
 | UI | `cd temporal-agent-kit/typescript/apps/ui && pnpm dev` | 5173 |
 | Status page | `cd agent_status && uv run python status_page.py` | 8100 |
 | ReAct terminal client (optional, to answer `ask_user`) | `cd react_agent_sessions && uv run python client.py` | none |
 
 Open http://127.0.0.1:5173. The UI is run from the agent kit's source for now; see
 `react_agent_sessions/README.md#running-the-ui-from-the-agent-kit-temporary`. Don't run
-`order_support`'s local `spike.worker` alongside: it would compete with AgentCore for the queues.
+`order_support`'s local `local_worker.py` alongside: it would compete with AgentCore for the queues.
 
 An agent session open in the UI keeps that agent's Worker running: the UI polls the session's
 event stream, and the workflow answers each poll on a Worker. To watch Workers drain and sessions

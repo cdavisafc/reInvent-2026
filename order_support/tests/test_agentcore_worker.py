@@ -9,7 +9,7 @@ from bedrock_agentcore.runtime.models import PingStatus
 
 import agentcore_worker
 from agentcore_worker import ActivityTracker
-from spike.hosted_agents import hosted_agent
+from hosted_agents import hosted_agent
 
 
 @pytest.fixture

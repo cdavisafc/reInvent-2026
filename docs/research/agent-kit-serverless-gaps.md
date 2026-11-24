@@ -27,11 +27,12 @@ The fixes are design changes in the kit. Those designs were reasonable for a lon
 | 3 | The UI blocks new sessions when no Worker is polling | Always-on assumption | Reopen the new-session dialog | Not raised |
 | 4 | Status queries must outlast a cold start | Always-on assumption | None | Not raised |
 | 5 | Large payloads go to the Worker's local disk by default | Always-on assumption | `large_payload_offload=None` | Not raised |
-| 6 | `subagent_toolset` tools fail from an OpenAI Agents SDK parent | Bug | `spike/keyword_tools.py` | Not raised |
+| 6 | `subagent_toolset` tools fail from an OpenAI Agents SDK parent | Bug | `order_support/keyword_tools.py` | Not raised |
 | 7 | Streams break with `openai>=3.9` | Bug | Pin `openai==3.8.0` | Not raised |
-| 8 | The Strands plugin doesn't pass `opentelemetry` through the sandbox | Bug (shows on AgentCore) | `spike.hosted_agents.workflow_runner()` | Not raised |
+| 8 | The Strands plugin doesn't pass `opentelemetry` through the sandbox | Bug (shows on AgentCore) | `hosted_agents.workflow_runner()` | Not raised |
 | 9 | A handler's failure reaches the UI as `str(e)` only | Rough edge | Log the traceback in the handler | Not raised |
 | 10 | `serve` ignores changed registries while `session-manager` runs | Rough edge | Terminate `session-manager` | Not raised |
+| 11 | The UI timeline drops a reused subagent's actions on later turns | Bug (UI) | Reload the page | Not raised |
 
 "Not raised" means there's no issue on temporal-agent-kit yet. Filing one is public, so each
 waits for a go-ahead.
@@ -107,7 +108,7 @@ the tool's signature has two parameters, its body takes one plus `**kwargs`, and
 Agents SDK adapter passes arguments positionally. Unchanged in the kit at 0.12.0.
 
 - **Details:** `order-support-subagent-spike.md`, "Finding: harness bug in `subagent_toolset`".
-- **Workaround:** `spike/keyword_tools.py` makes the parameters keyword-only.
+- **Workaround:** `order_support/keyword_tools.py` makes the parameters keyword-only.
 
 ### 7. Streams break with `openai>=3.9`
 
@@ -125,7 +126,7 @@ Locally there's no such processor, so it only shows on AgentCore.
 
 - **Details:** `order-support-subagent-spike.md`, "Finding: Strands on AgentCore needs
   `opentelemetry` passed through the sandbox".
-- **Workaround:** every Worker uses `spike.hosted_agents.workflow_runner()`, a sandbox that passes
+- **Workaround:** every Worker uses `order_support/hosted_agents.py`'s `workflow_runner()`, a sandbox that passes
   `opentelemetry` through.
 
 ## Rough edges
@@ -137,7 +138,7 @@ The harness catches a handler's exception and publishes only `str(e)` as
 find.
 
 - **Details:** `order-support-subagent-spike.md`, the symptom of the `opentelemetry` finding.
-- **Workaround:** `spike/shipping_workflow.py` logs the traceback before re-raising.
+- **Workaround:** `order_support/specialist.py` logs the traceback before re-raising.
 
 ### 10. `serve` ignores changed registries while `session-manager` runs
 
@@ -146,3 +147,24 @@ don't appear until that workflow is terminated, which ends every running session
 
 - **Details:** root `README.md`, "Running the demo with every agent".
 - **Workaround:** `temporal workflow terminate --workflow-id session-manager`, then restart `serve`.
+
+### 11. The UI timeline drops a reused subagent's actions on later turns
+
+Seen 2026-11-24 in the order-support demo. The Concierge starts Shipping on the first prompt and
+reuses it on a later prompt. On that later prompt, the UI's log shows the Shipping subagent, but
+the timeline doesn't show any of its actions (tool calls, approvals).
+
+- **The server side is fine.** `order_support/tests/test_subagent_reuse_e2e.py` reads the merged
+  stream (`AgentClient.attach`, what `serve` gives the UI). The child's second-turn events are
+  there both when resuming from the offset after turn 1, as the UI does after sending a prompt,
+  and when replaying from 0. So it isn't `subagent_signals.py` (gap 1) or the stream merge.
+- **Likely cause, not confirmed:** `apps/ui/src/lib/state/replayTimeline.ts` nests a child's
+  events under a parent turn only for a subagent it has "observed", and a subagent becomes
+  observed from its `subagent_started`. That is published once, on the parent's stream, in the
+  turn that started the child. A stream resumed for a later turn doesn't carry it, so the
+  child's later events may have no subagent to nest under. The log lists events without nesting,
+  so it still shows them.
+- **Untried check:** reloading the page replays from 0, which includes `subagent_started`. If the
+  actions then appear, that confirms the cause.
+- **Workaround:** reload the page. Starting a new specialist on each prompt would avoid the gap,
+  but it would lose the specialist's conversation, which auto mode judges calls against.

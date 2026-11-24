@@ -30,8 +30,9 @@ from temporalio.contrib.workflow_streams import WorkflowStreamClient
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from spike.hosted_agents import hosted_agent, shipping_plugins, workflow_runner
-from tests.test_spike_subagent_e2e import _ScriptedShipping
+from hosted_agents import hosted_agent, shipping_plugins, workflow_runner
+from tests.fake_judge import fake_judge_order_relation
+from tests.test_subagent_e2e import _ScriptedShipping
 
 
 class _LazyImportingSpanProcessor(SpanProcessor):
@@ -60,7 +61,7 @@ async def test_shipping_turn_survives_lazy_opentelemetry_imports_in_spans():
         client = await Client.connect(
             env.client.service_client.config.target_host,
             namespace=env.client.namespace,
-            plugins=shipping_plugins(_ScriptedShipping),
+            plugins=shipping_plugins(_ScriptedShipping, judge=fake_judge_order_relation),
         )
         async with Worker(
             client,

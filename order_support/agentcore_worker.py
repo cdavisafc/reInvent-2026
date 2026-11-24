@@ -4,7 +4,7 @@
 """Runs a Temporal Worker for one order-support agent inside an Amazon Bedrock AgentCore Runtime.
 
 Every runtime in agentcore/agentcore.json deploys this same code and picks its agent with the
-ORDER_SUPPORT_AGENT env var (see spike/hosted_agents.py). Each agent is its own Worker Deployment
+ORDER_SUPPORT_AGENT env var (see hosted_agents.py). Each agent is its own Worker Deployment
 on its own task queue, so the Temporal server invokes each runtime separately: a subagent (a child
 workflow on another queue) gets its own invoke, microVM and Worker.
 
@@ -55,9 +55,9 @@ from temporalio.worker import (
 )
 
 from activity_sessions import ActivitySessionInterceptor, session_config_for
+from hosted_agents import hosted_agent, workflow_runner
 from runtime_secrets import load_secrets_into_env
 from session_heartbeat import SessionHeartbeat
-from spike.hosted_agents import hosted_agent, workflow_runner
 
 app = BedrockAgentCoreApp()
 log = app.logger
@@ -68,7 +68,7 @@ _worker: asyncio.Task[None] | None = None
 # This session's liveness heartbeat, started on the first invoke; it lives as long as the process.
 _heartbeat: SessionHeartbeat | None = None
 
-# Which agent this runtime hosts: a key of spike.hosted_agents.HOSTED_AGENTS.
+# Which agent this runtime hosts: a key of hosted_agents.HOSTED_AGENTS.
 AGENT_NAME = os.environ.get("ORDER_SUPPORT_AGENT")
 DEPLOYMENT_NAME = os.environ.get("TEMPORAL_DEPLOYMENT_NAME")
 BUILD_ID = os.environ.get("TEMPORAL_BUILD_ID", "1.0.0")

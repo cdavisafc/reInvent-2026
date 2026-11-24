@@ -1,19 +1,19 @@
-# ABOUTME: Runs the spike's two Workers locally in one process: the OpenAI concierge on its queue and
-# the Strands shipping child on another, each with its own client and plugins, as AgentCore will.
+# ABOUTME: Runs all three order-support Workers locally in one process, each on its own task queue
+# with its own client and plugins, as the separate AgentCore runtimes do.
 
-"""Local Workers for the subagent spike.
+"""Local Workers for the order-support agents.
 
-    uv run python -m spike.worker               # with activity sessions (the default)
-    uv run python -m spike.worker --no-sessions
+    uv run python local_worker.py               # with activity sessions (the default)
+    uv run python local_worker.py --no-sessions
 
-Each Worker gets its own client: the concierge's has only the OpenAI Agents plugin, the shipping
-child's only the Strands plugin, matching the separate AgentCore runtimes (agentcore_worker.py).
+Each Worker gets its own client: the concierge's has only the OpenAI Agents plugin, each
+specialist's only the Strands plugin, matching the separate AgentCore runtimes (agentcore_worker.py).
 
 Env vars:
     TEMPORAL_ADDRESS, TEMPORAL_NAMESPACE, TEMPORAL_API_KEY   the Temporal server (TLS when a key is set)
     OPENAI_API_KEY                                          the concierge's model
-    AWS credentials + AWS_REGION                            the shipping child's Bedrock model
-    SHIPPING_BEDROCK_MODEL_ID                               default global.anthropic.claude-opus-5-5
+    AWS credentials + AWS_REGION                            the specialists' Bedrock model
+    BEDROCK_MODEL_ID                                        default global.anthropic.claude-opus-5-5
 """
 
 import argparse
@@ -25,14 +25,14 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from activity_sessions import ActivitySessionInterceptor, session_config_for
-from spike.hosted_agents import (
+from hosted_agents import (
     BEDROCK_MODEL_ID,
     HOSTED_AGENTS,
     HostedAgent,
     workflow_runner,
 )
 
-log = logging.getLogger("spike.worker")
+log = logging.getLogger("local_worker")
 
 # Session Workers need a fixed-size activity slot supplier.
 ACTIVITY_SLOTS = 4
@@ -85,7 +85,7 @@ async def main() -> None:
     ]
     log.info(
         "polling %s (sessions %s, Bedrock model %s)",
-        " and ".join(agent.task_queue for agent in HOSTED_AGENTS.values()),
+        ", ".join(agent.task_queue for agent in HOSTED_AGENTS.values()),
         "on" if args.sessions else "off",
         BEDROCK_MODEL_ID,
     )

@@ -1,10 +1,10 @@
 {
-  "agent": "SpikeConciergeAgent",
-  "source": "spike.concierge_workflow:SpikeConciergeAgentWorkflow",
+  "agent": "ShippingAgent",
+  "source": "shipping.workflow:ShippingAgentWorkflow",
   "init_data": null,
   "handlers": {
     "ask": {
-      "description": "Ask the concierge about an order. It hands shipping questions to the shipping\nspecialist and tells you what it found.",
+      "description": "Ask the shipping specialist about an order's shipment: where it is, when it will\narrive, or to expedite it.",
       "mid_turn": "reject",
       "input": {
         "$ref": "#/$defs/TextMessage"

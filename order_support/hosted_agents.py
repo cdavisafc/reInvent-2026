@@ -1,5 +1,5 @@
 # ABOUTME: The agents a Worker can host, each with its task queue, workflow, client plugins and
-# required secrets. Shared by the local Workers (spike/worker.py) and the AgentCore entry point.
+# required secrets. Shared by the local Workers (local_worker.py) and the AgentCore entry point.
 
 import os
 from collections.abc import Callable
@@ -30,16 +30,19 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
+from concierge.workflow import CONCIERGE_TASK_QUEUE, ConciergeAgentWorkflow
+from contracts import ORDERS_TASK_QUEUE, SHIPPING_TASK_QUEUE
 from human_tools import HUMAN_TOOLS
-from spike.concierge_workflow import CONCIERGE_TASK_QUEUE, SpikeConciergeAgentWorkflow
-from spike.contracts import SHIPPING_TASK_QUEUE
-from spike.shipping_tools import SHIPPING_TOOLS
-from spike.shipping_workflow import MODEL, SpikeShippingAgentWorkflow
+from order_judge import judge_order_relation
+from orders.tools import ORDERS_TOOLS
+from orders.workflow import OrdersAgentWorkflow
+from shipping.tools import SHIPPING_TOOLS
+from shipping.workflow import ShippingAgentWorkflow
+from specialist import MODEL
 from subagent_signals import send_subagent_message
 
-BEDROCK_MODEL_ID = os.environ.get(
-    "SHIPPING_BEDROCK_MODEL_ID", "global.anthropic.claude-opus-5-5"
-)
+# The Claude model both Strands specialists call on Bedrock.
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-opus-5-5")
 
 
 class UnknownAgentError(ValueError):
@@ -93,16 +96,35 @@ def _bedrock_model() -> BedrockModel:
     )
 
 
-def shipping_plugins(
-    model_factory: Callable[[], StrandsModel] = _bedrock_model,
+def _specialist_plugins(
+    tools: list,
+    model_factory: Callable[[], StrandsModel],
+    judge: Callable,
 ) -> list[Plugin]:
-    """The shipping Worker's plugins. Tests pass a scripted ``model_factory``."""
     return [
         StrandsPlugin(
             models={MODEL: model_factory}, observer_factory=strands_observer_factory
         ),
-        _harness_plugin([*SHIPPING_TOOLS, *HUMAN_TOOLS]),
+        # Auto mode asks the order judge about each gated call (order_policy.py).
+        SimplePlugin("order-support-order-judge", activities=[judge]),
+        _harness_plugin([*tools, *HUMAN_TOOLS]),
     ]
+
+
+def shipping_plugins(
+    model_factory: Callable[[], StrandsModel] = _bedrock_model,
+    judge: Callable = judge_order_relation,
+) -> list[Plugin]:
+    """The shipping Worker's plugins. Tests pass a scripted ``model_factory`` and ``judge``."""
+    return _specialist_plugins(SHIPPING_TOOLS, model_factory, judge)
+
+
+def orders_plugins(
+    model_factory: Callable[[], StrandsModel] = _bedrock_model,
+    judge: Callable = judge_order_relation,
+) -> list[Plugin]:
+    """The orders Worker's plugins. Tests pass a scripted ``model_factory`` and ``judge``."""
+    return _specialist_plugins(ORDERS_TOOLS, model_factory, judge)
 
 
 HOSTED_AGENTS = {
@@ -111,16 +133,23 @@ HOSTED_AGENTS = {
         HostedAgent(
             name="concierge",
             task_queue=CONCIERGE_TASK_QUEUE,
-            workflow=SpikeConciergeAgentWorkflow,
+            workflow=ConciergeAgentWorkflow,
             plugins=concierge_plugins,
             secret_keys=("TEMPORAL_API_KEY", "OPENAI_API_KEY"),
         ),
         HostedAgent(
             name="shipping",
             task_queue=SHIPPING_TASK_QUEUE,
-            workflow=SpikeShippingAgentWorkflow,
+            workflow=ShippingAgentWorkflow,
             plugins=shipping_plugins,
             # Bedrock uses the runtime's IAM role, so no model key.
+            secret_keys=("TEMPORAL_API_KEY",),
+        ),
+        HostedAgent(
+            name="orders",
+            task_queue=ORDERS_TASK_QUEUE,
+            workflow=OrdersAgentWorkflow,
+            plugins=orders_plugins,
             secret_keys=("TEMPORAL_API_KEY",),
         ),
     ]

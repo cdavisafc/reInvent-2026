@@ -11,7 +11,7 @@ positionally, so every call fails with "takes 1 positional argument but 2 were g
 
 Declaring the parameters keyword-only makes the adapter pass them by name, which ``_send``
 accepts. The model-facing schema is unchanged. Remove this once the harness fixes
-``subagent_toolset`` (see docs/research/order-support-subagent-spike.md).
+``subagent_toolset`` (see ../docs/research/order-support-subagent-spike.md).
 """
 
 import inspect
