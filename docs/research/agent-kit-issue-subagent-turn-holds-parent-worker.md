@@ -1,7 +1,7 @@
 # Issue draft (temporal-agent-kit): a subagent turn keeps the parent's Worker busy
 
 Draft of an issue for temporal-agent-kit, from the order-support spike
-(`order-support-subagent-spike.md`). Not filed yet.
+(`order-support-subagent-spike.md`). Not filed yet. Item 1 in [`agent-kit-serverless-gaps.md`](agent-kit-serverless-gaps.md).
 
 ---
 

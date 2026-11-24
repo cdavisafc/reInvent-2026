@@ -21,8 +21,9 @@ The user chose the following (2026-11-19):
   `start_<key>`, `<key>_<handler>(subagent, input)` and `stop_<key>`. Wrapping them with
   `as_openai_agent_tools` makes them available to the parent.
 - **Each subagent is a child workflow**, a full multi-turn harness session, started on whatever
-  `task_queue` we pass. The parent runs one `run_subagent_turn` activity per child turn; it
-  heartbeats and lasts until the child's `turn_end`.
+  `task_queue` we pass. The harness's parent runs one `run_subagent_turn` activity per child
+  turn, which lasts until the child's `turn_end`, so the parent's Worker can't drain while the
+  child waits on a person. We replace that (see **Decision: subagent replies are signals**).
 - **The child's SDK is irrelevant**: any harness agent works.
 - **Human-in-the-loop inside a child works.** The UI approves against the child's workflow id.
 - **The UI already nests subagents.** The client merges the parent's and children's streams
@@ -101,6 +102,21 @@ deployment, and all three share the CodeZip.
     they diverge;
   - the concierge's tool list contains the generated subagent tools.
 
+## Decision: subagent replies are signals (2026-11-24)
+
+Every agent in the demo, both the concierge and each specialist, constructs
+`SubagentSignalRunner` (`order_support/subagent_signals.py`) instead of `AgentWorkflowRunner`.
+- **The concierge** sends each message with a short activity, then waits for the reply in its
+  workflow.
+- **A specialist** signals its parent after each message.
+
+Any Worker hosting a parent also registers the `send_subagent_message` activity (see
+`concierge_plugins()` in `spike/hosted_agents.py`). This replaces the harness's blocking
+`run_subagent_turn` activity, so no agent holds a Worker while a specialist waits on a person.
+It overrides private harness hooks, pinned to temporal-agent-harness 0.11.1. Delete it when the
+kit ships the fix in `docs/research/agent-kit-issue-subagent-turn-holds-parent-worker.md` (not
+filed yet).
+
 ## Order of work
 
 1. **Spike the riskiest piece, locally** (record it in `docs/research/order-support-subagent-spike.md`):
@@ -112,9 +128,17 @@ deployment, and all three share the CodeZip.
    Also check that the Strands plugin works with temporalio `1.34.0+sessions`; the harness
    declares `>=1.35`.
 
-   **Status (2026-11-20):** passes offline with scripted models (`order_support/tests/test_spike_*.py`).
-   It found a harness bug: `subagent_toolset` tools can't be called from an OpenAI Agents SDK
-   parent. The workaround is `spike/keyword_tools.py`. The live staging and UI run is still to do.
+   **Status (2026-11-24): done.**
+   - Passes offline with scripted models (`order_support/tests/test_spike_*.py`).
+   - Ran live: both spike agents deployed as AgentCore runtimes with activity sessions, driven
+     from the kit UI, with the child nested and its approval working.
+   - Found a harness bug: `subagent_toolset` tools can't be called from an OpenAI Agents SDK
+     parent. The workaround is `spike/keyword_tools.py`.
+   - Found that the parent's Worker can't drain while a child waits on a person. The fix is
+     `order_support/subagent_signals.py`, tested locally.
+   - Still to verify on AgentCore: both Workers drain while an approval is open, then wake in
+     turn after it.
+
    See the research note.
 2. Mock store and specialists (tests first), run locally with `local_worker.py` and the kit UI.
 3. Concierge, run locally end to end with the three demo prompts.
@@ -127,12 +151,14 @@ deployment, and all three share the CodeZip.
 
 ## Known costs and caveats
 
-- **While a specialist works, the concierge's AgentCore session stays busy** (the
-  `run_subagent_turn` activity holds it). That's correct, and worth saying on stage.
+- **While a specialist waits on a person, neither agent holds a Worker.** The concierge waits
+  for the reply in its workflow (`subagent_signals.py`), so both AgentCore sessions drain. While
+  a specialist is actively working, only the specialist's session is busy.
 - **Cold starts stack:** a spanning request can wake up to three microVMs, one after another.
   Pre-warm before the demo.
-- **The status page** (`react_agent_sessions/status_page.py`) handles one queue. Making it handle
-  several is a follow-up, not part of this plan.
+- **The status page** is `agent_status/`. It covers every agent listed in its `agents.toml`; add
+  the Orders specialist's queue there when it exists. Each runtime needs the session heartbeat
+  (`session_heartbeat.py`, `SESSION_HEARTBEAT_TABLE`, `session-heartbeat-policy.json`).
 
 ## Verification
 

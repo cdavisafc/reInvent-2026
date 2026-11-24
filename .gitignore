@@ -27,3 +27,6 @@ dist/
 # Built by prerelease/build-local-wheels.sh (temporary); never commit.
 prerelease/wheels/
 prerelease/.wheel-build/
+
+# Vite dependency pre-bundling cache (from `pnpm dev` in the agent kit UI)
+.vite/

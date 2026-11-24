@@ -49,5 +49,8 @@ it's given while that workflow runs. The first time you switch to the combined l
 changing either registry, run `temporal workflow terminate --workflow-id session-manager`, then
 restart `serve`. That ends every running agent session, since they are its children.
 
-`docs/` holds research notes and plans (`docs/plans/react-agent-on-agentcore.md` records the
-porting decisions; `docs/plans/react-agent-sessions-on-agentcore.md` the activity-sessions variant).
+`docs/` holds research notes and plans:
+- `docs/plans/react-agent-on-agentcore.md` records the porting decisions, and
+  `docs/plans/react-agent-sessions-on-agentcore.md` the activity-sessions variant;
+- `docs/research/agent-kit-serverless-gaps.md` indexes the agent kit problems we hit on
+  serverless Workers.

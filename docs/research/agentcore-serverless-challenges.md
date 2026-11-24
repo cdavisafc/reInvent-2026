@@ -226,6 +226,8 @@ Worker drains.
 
 ## temporal-agent-harness
 
+These items, with the harness problems found later, are indexed in [`agent-kit-serverless-gaps.md`](agent-kit-serverless-gaps.md).
+
 ### 9. The web UI wakes the Worker every 30s while a session is open
 **Observed.** While a session is open in a *visible* tab and idle, the UI calls
 `GET /api/status/{session_id}` every `idlePollMs = 30000` (UI bundle, `#Kt`). It pauses while

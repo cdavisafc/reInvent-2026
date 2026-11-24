@@ -1,7 +1,8 @@
 # Spike: OpenAI Agents SDK parent driving a Strands child on another task queue
 
 Step 1 of `docs/plans/order-support-demo.md`. Code: `order_support/spike/`. Tests:
-`order_support/tests/test_spike_*.py`.
+`order_support/tests/test_spike_*.py`. The harness problems found here are also indexed in
+[`agent-kit-serverless-gaps.md`](agent-kit-serverless-gaps.md).
 
 ## Question
 
